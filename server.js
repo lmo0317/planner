@@ -383,27 +383,75 @@ function normalizeExtractedEvent(event, baseDate, options = {}) {
 }
 
 function deduplicateEvents(events) {
-  const unique = [];
+  const unique = new Map();
   for (const event of events) {
     const normalizedTitle = event.title.toLowerCase().replace(/\s+/g, '').replace(/[^\p{L}\p{N}]/gu, '');
-    const startDay = event.startDate.slice(0, 10);
-    const duplicateIndex = unique.findIndex(existing => {
-      if (existing.startDate.slice(0, 10) !== startDay) return false;
-      const existingTitle = existing.title.toLowerCase().replace(/\s+/g, '').replace(/[^\p{L}\p{N}]/gu, '');
-      if (existingTitle === normalizedTitle) return true;
-      const shorterLength = Math.min(existingTitle.length, normalizedTitle.length);
-      return shorterLength >= 3 &&
-        (existingTitle.includes(normalizedTitle) || normalizedTitle.includes(existingTitle));
-    });
+    const key = `${event.startDate.slice(0, 16)}|${normalizedTitle}`;
+    const existing = unique.get(key);
+    if (!existing || event.confidence > existing.confidence) unique.set(key, event);
+  }
+  return Array.from(unique.values()).sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
+}
+
+function normalizeCandidateText(value) {
+  return String(value || '').toLowerCase().replace(/키즈노트\s*#\d+\s*:/g, '')
+    .replace(/[^\p{L}\p{N}]/gu, '');
+}
+
+function diceSimilarity(left, right) {
+  if (left === right) return 1;
+  if (left.length < 2 || right.length < 2) return 0;
+  const counts = new Map();
+  for (let i = 0; i < left.length - 1; i++) {
+    const pair = left.slice(i, i + 2);
+    counts.set(pair, (counts.get(pair) || 0) + 1);
+  }
+  let overlap = 0;
+  for (let i = 0; i < right.length - 1; i++) {
+    const pair = right.slice(i, i + 2);
+    const count = counts.get(pair) || 0;
+    if (count > 0) {
+      overlap++;
+      counts.set(pair, count - 1);
+    }
+  }
+  return (2 * overlap) / (left.length + right.length - 2);
+}
+
+function areSameKidsNoteCandidate(left, right) {
+  const sameDateRange = left.startDate.slice(0, 10) === right.startDate.slice(0, 10) &&
+    left.endDate.slice(0, 10) === right.endDate.slice(0, 10);
+  if (!sameDateRange) return false;
+
+  const leftTitle = normalizeCandidateText(left.title);
+  const rightTitle = normalizeCandidateText(right.title);
+  if (!leftTitle || !rightTitle) return false;
+  if (leftTitle === rightTitle) return true;
+
+  const shorter = leftTitle.length <= rightTitle.length ? leftTitle : rightTitle;
+  const longer = shorter === leftTitle ? rightTitle : leftTitle;
+  const containmentRatio = shorter.length / longer.length;
+  if (shorter.length >= 4 && longer.includes(shorter) && containmentRatio >= 0.5) return true;
+  if (diceSimilarity(leftTitle, rightTitle) >= 0.66) return true;
+
+  const leftEvidence = normalizeCandidateText(left.evidence);
+  const rightEvidence = normalizeCandidateText(right.evidence);
+  if (Math.min(leftEvidence.length, rightEvidence.length) < 12) return false;
+  return diceSimilarity(leftEvidence, rightEvidence) >= 0.82;
+}
+
+function deduplicateKidsNoteEvents(events) {
+  const unique = [];
+  for (const event of events) {
+    const duplicateIndex = unique.findIndex(existing => areSameKidsNoteCandidate(existing, event));
     if (duplicateIndex === -1) {
       unique.push(event);
       continue;
     }
     const existing = unique[duplicateIndex];
-    if (event.confidence > existing.confidence ||
-        (event.confidence === existing.confidence && event.content.length > existing.content.length)) {
-      unique[duplicateIndex] = event;
-    }
+    const existingScore = existing.confidence * 1000 + existing.content.length + existing.evidence.length;
+    const eventScore = event.confidence * 1000 + event.content.length + event.evidence.length;
+    if (eventScore > existingScore) unique[duplicateIndex] = event;
   }
   return unique.sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
 }
@@ -779,7 +827,7 @@ function chunkKidsNoteReports(reports, maxChars = 5000, maxChunks = 4) {
 }
 
 function normalizeKidsNoteEvents(rawEvents, referenceDate) {
-  return deduplicateEvents(rawEvents
+  return deduplicateKidsNoteEvents(rawEvents
     .map(event => {
       const normalized = normalizeExtractedEvent({
         ...event,
