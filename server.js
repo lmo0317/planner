@@ -17,6 +17,7 @@ const KIDSNOTE_SESSION_COOKIE = 'planner_kidsnote_session';
 const KIDSNOTE_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const KIDSNOTE_SESSION_FILE = path.join(__dirname, 'data', 'kidsnote-sessions.json');
 const CHROMIUM_EXECUTABLE = process.env.CHROMIUM_EXECUTABLE || '/snap/bin/chromium';
+const kidsNoteAnalysisJobs = new Map();
 
 let koreanHolidayModulePromise;
 
@@ -745,7 +746,7 @@ async function fetchKidsNoteReports(childId, cookie, options = {}) {
   return reports;
 }
 
-function chunkKidsNoteReports(reports, maxChars = 5000, maxChunks = 2) {
+function chunkKidsNoteReports(reports, maxChars = 5000, maxChunks = 4) {
   const chunks = [];
   let current = '';
   for (const report of reports) {
@@ -762,7 +763,27 @@ function chunkKidsNoteReports(reports, maxChars = 5000, maxChunks = 2) {
   return chunks;
 }
 
-async function parseKidsNoteReports(reports, referenceDate) {
+function normalizeKidsNoteEvents(rawEvents, referenceDate) {
+  return deduplicateEvents(rawEvents
+    .map(event => {
+      const normalized = normalizeExtractedEvent({
+        ...event,
+        status: 'active',
+        evidence: `키즈노트 #${String(event.sourceId || '?')}: ${String(event.evidence || '')}`
+      }, referenceDate);
+      if (!normalized || normalized.allDay) return normalized;
+      const startMs = new Date(normalized.startDate).getTime();
+      const endMs = new Date(normalized.endDate).getTime();
+      const endLooksLikeDayBoundary = /T23:59(?::59)?/.test(normalized.endDate);
+      if (endLooksLikeDayBoundary && endMs - startMs > 60 * 60 * 1000) {
+        normalized.endDate = formatEpochWithOffset(startMs + 60 * 60 * 1000, getBaseOffset(referenceDate));
+      }
+      return normalized;
+    })
+    .filter(Boolean));
+}
+
+async function parseKidsNoteReports(reports, referenceDate, options = {}) {
   const scheduleNoticePattern = /(오늘|내일|모레|이번\s*주|다음\s*주|다다음\s*주|월요일|화요일|수요일|목요일|금요일|토요일|일요일|\d{1,2}\s*월\s*\d{1,2}\s*일|\d{1,2}[./-]\d{1,2}|까지|마감|제출|신청|준비물|지참|행사|견학|소풍|방학|휴원|수업|상담|검사|예방접종|입학|졸업|발표회|운동회)/i;
   const formatted = reports
     .map(formatKidsNoteReport)
@@ -816,7 +837,10 @@ Return JSON only.`;
 
   const rawEvents = [];
   let failedChunks = 0;
-  for (const chunk of chunks) {
+  let processedReports = 0;
+  for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+    const chunk = chunks[chunkIndex];
+    processedReports += (chunk.match(/\[KIDSNOTE_REPORT\b/g) || []).length;
     try {
       const response = await fetch(`${LLM_BASE_URL}/v1/chat/completions`, {
         method: 'POST',
@@ -838,27 +862,21 @@ Return JSON only.`;
       failedChunks++;
       console.warn(`KidsNote AI chunk failed (${failedChunks}/${chunks.length}):`, error.message);
     }
+    if (typeof options.onProgress === 'function') {
+      options.onProgress({
+        events: normalizeKidsNoteEvents(rawEvents, referenceDate),
+        reportCount: reports.length,
+        analyzedCount: processedReports,
+        totalAnalyzedCount: analyzedCount,
+        completedChunks: chunkIndex + 1,
+        totalChunks: chunks.length
+      });
+    }
   }
 
   if (failedChunks === chunks.length) throw new Error('AI가 키즈노트 일정 결과를 완성하지 못했습니다. 다시 시도해 주세요.');
 
-  const events = deduplicateEvents(rawEvents
-    .map(event => {
-      const normalized = normalizeExtractedEvent({
-        ...event,
-        status: 'active',
-        evidence: `키즈노트 #${String(event.sourceId || '?')}: ${String(event.evidence || '')}`
-      }, referenceDate);
-      if (!normalized || normalized.allDay) return normalized;
-      const startMs = new Date(normalized.startDate).getTime();
-      const endMs = new Date(normalized.endDate).getTime();
-      const endLooksLikeDayBoundary = /T23:59(?::59)?/.test(normalized.endDate);
-      if (endLooksLikeDayBoundary && endMs - startMs > 60 * 60 * 1000) {
-        normalized.endDate = formatEpochWithOffset(startMs + 60 * 60 * 1000, getBaseOffset(referenceDate));
-      }
-      return normalized;
-    })
-    .filter(Boolean));
+  const events = normalizeKidsNoteEvents(rawEvents, referenceDate);
   return { events, reportCount: reports.length, analyzedCount };
 }
 
@@ -883,6 +901,72 @@ app.post('/api/kidsnote/import', async (req, res) => {
     res.status(err.status || 500).json({ error: err.message || '키즈노트 데이터를 처리하지 못했습니다.' });
   }
 });
+
+app.post('/api/kidsnote/import/start', (req, res) => {
+  const session = getSavedKidsNoteSession(req);
+  if (!session) return res.status(401).json({ error: '저장된 키즈노트 로그인이 없거나 만료되었습니다.' });
+
+  const jobId = crypto.randomBytes(24).toString('base64url');
+  const job = {
+    ownerToken: session.token,
+    status: 'processing',
+    createdAt: Date.now(),
+    result: null,
+    progress: { completedChunks: 0, totalChunks: 0 },
+    error: ''
+  };
+  kidsNoteAnalysisJobs.set(jobId, job);
+
+  setImmediate(async () => {
+    try {
+      const reports = await fetchKidsNoteReports(session.childId, session.cookie, {
+        enrollment: session.enrollment,
+        maxPages: 1
+      });
+      if (!reports.length) throw new Error('분석할 키즈노트 알림장 데이터가 없습니다.');
+      job.result = await parseKidsNoteReports(reports, req.body?.baseDate || new Date().toISOString(), {
+        onProgress: partialResult => {
+          job.result = partialResult;
+          job.progress = {
+            completedChunks: partialResult.completedChunks,
+            totalChunks: partialResult.totalChunks
+          };
+        }
+      });
+      job.status = 'completed';
+    } catch (error) {
+      console.error('KidsNote background analysis error:', error.message);
+      job.error = error.message || '키즈노트 데이터를 분석하지 못했습니다.';
+      job.status = 'failed';
+    }
+  });
+
+  res.status(202).json({ jobId, status: job.status });
+});
+
+app.get('/api/kidsnote/import/jobs/:jobId', (req, res) => {
+  const session = getSavedKidsNoteSession(req);
+  const job = kidsNoteAnalysisJobs.get(req.params.jobId);
+  if (!session || !job || job.ownerToken !== session.token) {
+    return res.status(404).json({ error: '분석 작업을 찾을 수 없습니다.' });
+  }
+  if (job.status === 'completed') {
+    kidsNoteAnalysisJobs.delete(req.params.jobId);
+    return res.json({ status: 'completed', result: job.result });
+  }
+  if (job.status === 'failed') {
+    kidsNoteAnalysisJobs.delete(req.params.jobId);
+    return res.status(500).json({ status: 'failed', error: job.error });
+  }
+  res.json({ status: 'processing', result: job.result, progress: job.progress });
+});
+
+setInterval(() => {
+  const cutoff = Date.now() - 30 * 60 * 1000;
+  for (const [jobId, job] of kidsNoteAnalysisJobs) {
+    if (job.createdAt < cutoff) kidsNoteAnalysisJobs.delete(jobId);
+  }
+}, 5 * 60 * 1000).unref();
 
 app.get('/api/kidsnote/session', (req, res) => {
   const session = getSavedKidsNoteSession(req);

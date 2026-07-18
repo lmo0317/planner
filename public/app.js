@@ -1503,13 +1503,19 @@ async function analyzeKidsNote() {
   kidsNoteLoading.classList.remove('hidden');
   btnAnalyzeKidsNote.disabled = true;
   try {
-    const response = await fetch('/api/kidsnote/import', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(result.error || '키즈노트 데이터를 분석하지 못했습니다.');
+    const result = kidsNoteMode === 'saved_session'
+      ? await runKidsNoteBackgroundAnalysis(payload, partial => {
+        kidsNoteEventsState = Array.isArray(partial.events) ? partial.events : [];
+        kidsNoteLoading.classList.add('hidden');
+        kidsNotePreview.classList.remove('hidden');
+        btnAnalyzeKidsNote.classList.add('hidden');
+        btnSaveKidsNote.classList.add('hidden');
+        const completed = partial.completedChunks || 0;
+        const total = partial.totalChunks || 0;
+        kidsNoteSummary.textContent = `분석 중 ${completed}/${total} · 알림장 ${partial.analyzedCount || 0}건 확인 · 일정 후보 ${kidsNoteEventsState.length}건`;
+        renderKidsNoteCandidates();
+      })
+      : await runKidsNoteDirectAnalysis(payload);
     kidsNoteEventsState = Array.isArray(result.events) ? result.events : [];
     kidsNoteLoading.classList.add('hidden');
     kidsNotePreview.classList.remove('hidden');
@@ -1523,6 +1529,47 @@ async function analyzeKidsNote() {
     btnAnalyzeKidsNote.disabled = false;
     showToast(error.message, 'danger');
   }
+}
+
+async function runKidsNoteDirectAnalysis(payload) {
+  const response = await fetch('/api/kidsnote/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || '키즈노트 데이터를 분석하지 못했습니다.');
+  return result;
+}
+
+async function runKidsNoteBackgroundAnalysis(payload, onProgress) {
+  const startResponse = await fetch('/api/kidsnote/import/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ baseDate: payload.baseDate })
+  });
+  const started = await startResponse.json().catch(() => ({}));
+  if (!startResponse.ok || !started.jobId) {
+    throw new Error(started.error || '키즈노트 분석 작업을 시작하지 못했습니다.');
+  }
+
+  let lastCompletedChunks = -1;
+  for (let attempt = 0; attempt < 180; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    const statusResponse = await fetch(`/api/kidsnote/import/jobs/${encodeURIComponent(started.jobId)}`, { cache: 'no-store' });
+    const status = await statusResponse.json().catch(() => ({}));
+    if (statusResponse.ok && status.status === 'completed') return status.result;
+    const completedChunks = Number(status.result?.completedChunks ?? status.progress?.completedChunks ?? -1);
+    if (statusResponse.ok && status.status === 'processing' && status.result &&
+        completedChunks !== lastCompletedChunks && typeof onProgress === 'function') {
+      lastCompletedChunks = completedChunks;
+      onProgress(status.result);
+    }
+    if (!statusResponse.ok || status.status === 'failed') {
+      throw new Error(status.error || '키즈노트 데이터 분석에 실패했습니다.');
+    }
+  }
+  throw new Error('키즈노트 분석 시간이 초과되었습니다. 다시 시도해 주세요.');
 }
 
 function renderKidsNoteCandidates() {
