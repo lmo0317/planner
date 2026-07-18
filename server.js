@@ -693,16 +693,27 @@ async function fetchKidsNoteReports(childId, cookie, options = {}) {
       console.error('Rejected KidsNote pagination URL:', url.origin, url.pathname);
       throw new Error('키즈노트 응답의 다음 페이지 주소가 올바르지 않습니다.');
     }
-    const response = await fetch(url, {
-      headers: {
-        Cookie: cookie.trim(),
-        Accept: 'application/json',
-        ...(options.enrollment ? { 'X-ENROLLMENT': options.enrollment } : {}),
-        'User-Agent': 'NEO-Planner-KidsNote-Importer/1.0'
-      },
-      redirect: 'manual',
-      signal: AbortSignal.timeout(15000)
-    });
+    let response;
+    let lastFetchError;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        response = await fetch(url, {
+          headers: {
+            Cookie: cookie.trim(),
+            Accept: 'application/json',
+            ...(options.enrollment ? { 'X-ENROLLMENT': options.enrollment } : {}),
+            'User-Agent': 'NEO-Planner-KidsNote-Importer/1.0'
+          },
+          redirect: 'manual',
+          signal: AbortSignal.timeout(15000)
+        });
+        break;
+      } catch (error) {
+        lastFetchError = error;
+        if (attempt < 3) await new Promise(resolve => setTimeout(resolve, 500 * attempt));
+      }
+    }
+    if (!response) throw new Error(`키즈노트 서버 연결에 실패했습니다: ${lastFetchError?.message || 'network error'}`);
     if (response.status === 401 || response.status === 403 || response.status === 302) {
       const error = new Error('키즈노트 로그인이 만료되었거나 Cookie가 올바르지 않습니다.');
       error.status = 401;
