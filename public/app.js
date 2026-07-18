@@ -116,6 +116,7 @@ let kidsNoteMode = 'json';
 let kidsNoteJsonData = null;
 let kidsNoteEventsState = [];
 let kidsNoteSessionConnected = false;
+let kidsNoteSavedEventKeys = new Set();
 
 // Initialize application
 document.addEventListener('DOMContentLoaded', () => {
@@ -1366,6 +1367,7 @@ function resetKidsNoteModal() {
   kidsNoteMode = 'json';
   kidsNoteJsonData = null;
   kidsNoteEventsState = [];
+  kidsNoteSavedEventKeys = new Set();
   kidsNoteFileInput.value = '';
   kidsNoteFilePreview.classList.add('hidden');
   kidsNoteFilename.textContent = '';
@@ -1581,13 +1583,17 @@ function renderKidsNoteCandidates() {
     return;
   }
   kidsNoteEventsState.forEach((event, index) => {
+    const eventKey = getKidsNoteEventKey(event);
+    const alreadySaved = kidsNoteSavedEventKeys.has(eventKey);
     const card = document.createElement('div');
     card.className = 'extracted-card';
+    card.classList.toggle('registered', alreadySaved);
     card.dataset.index = index;
     card.style.borderLeft = `4px solid ${event.color || '#10b981'}`;
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
-    checkbox.checked = true;
+    checkbox.checked = !alreadySaved;
+    checkbox.disabled = alreadySaved;
     checkbox.className = 'extracted-card-checkbox kidsnote-schedule-checkbox';
     checkbox.addEventListener('change', () => {
       card.classList.toggle('disabled', !checkbox.checked);
@@ -1623,12 +1629,58 @@ function renderKidsNoteCandidates() {
       evidence.textContent = `근거: ${event.evidence}`;
       details.appendChild(evidence);
     }
+    const actions = document.createElement('div');
+    actions.className = 'kidsnote-card-actions';
+    const addButton = document.createElement('button');
+    addButton.type = 'button';
+    addButton.className = 'btn btn-success kidsnote-add-one';
+    addButton.disabled = alreadySaved;
+    addButton.innerHTML = alreadySaved
+      ? '<span>등록됨</span>'
+      : '<i data-lucide="calendar-plus"></i><span>이 일정만 추가</span>';
+    addButton.addEventListener('click', () => saveSingleKidsNoteSchedule(index, addButton, card, checkbox));
+    actions.appendChild(addButton);
+    details.appendChild(actions);
     card.appendChild(checkbox);
     card.appendChild(details);
+    if (alreadySaved) card.querySelectorAll('input').forEach(input => { input.disabled = true; });
     kidsNoteList.appendChild(card);
   });
   updateKidsNoteSelectedCount();
   lucide.createIcons();
+}
+
+function getKidsNoteEventKey(event) {
+  return `${event.evidence || event.title || ''}|${event.startDate || ''}`;
+}
+
+async function saveSingleKidsNoteSchedule(index, button, card, checkbox) {
+  const task = kidsNoteEventsState[index];
+  if (!task || !task.title?.trim() || !task.startDate || !task.endDate) {
+    showToast('일정 제목과 날짜를 확인해 주세요.', 'danger');
+    return;
+  }
+  button.disabled = true;
+  try {
+    const response = await fetch('/api/todos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(task)
+    });
+    if (!response.ok) throw new Error('일정을 등록하지 못했습니다.');
+    kidsNoteSavedEventKeys.add(getKidsNoteEventKey(task));
+    checkbox.checked = false;
+    checkbox.disabled = true;
+    card.classList.add('registered');
+    card.querySelectorAll('input').forEach(input => { input.disabled = true; });
+    button.innerHTML = '<span>등록됨</span>';
+    updateKidsNoteSelectedCount();
+    await fetchTodos();
+    showToast(`“${task.title}” 일정을 등록했습니다.`, 'success');
+  } catch (error) {
+    button.disabled = false;
+    showToast(error.message, 'danger');
+  }
 }
 
 function updateKidsNoteSelectedCount() {

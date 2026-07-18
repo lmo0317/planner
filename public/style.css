@@ -1606,6 +1606,35 @@ input[type="color"]::-webkit-color-swatch {
   line-height: 1.4;
 }
 
+.kidsnote-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.kidsnote-add-one {
+  min-height: 34px;
+  padding: 7px 12px;
+  font-size: 0.78rem;
+}
+
+.kidsnote-add-one svg {
+  width: 15px;
+  height: 15px;
+}
+
+.extracted-card.registered {
+  border-color: rgba(16, 185, 129, 0.38);
+  background: rgba(16, 185, 129, 0.07);
+}
+
+.extracted-card.registered .kidsnote-add-one:disabled {
+  opacity: 1;
+  color: var(--success);
+  background: rgba(16, 185, 129, 0.12);
+  cursor: default;
+}
+
 @media (max-width: 640px) {
   .ai-schedule-modal-content,
   .kidsnote-modal-content {
