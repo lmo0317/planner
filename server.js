@@ -503,9 +503,9 @@ async function parseKidsNoteReports(reports, referenceDate) {
             endDate: { type: 'string' }, allDay: { type: 'boolean' },
             priority: { type: 'string', enum: ['low', 'medium', 'high'] },
             category: { type: 'string', enum: ['work', 'personal', 'study', 'general'] },
-            dateReason: { type: 'string' }, evidence: { type: 'string' }, confidence: { type: 'number' }
+            dateReason: { type: 'string' }, evidence: { type: 'string' }, sourceId: { type: 'string' }, confidence: { type: 'number' }
           },
-          required: ['title', 'content', 'startDate', 'endDate', 'allDay', 'priority', 'category', 'dateReason', 'evidence', 'confidence'],
+          required: ['title', 'content', 'startDate', 'endDate', 'allDay', 'priority', 'category', 'dateReason', 'evidence', 'sourceId', 'confidence'],
           additionalProperties: false
         }
       }
@@ -520,14 +520,14 @@ RULES:
 1. Extract every explicit event date, attendance date, submission deadline, payment deadline, reservation, class, trip, holiday, or preparation deadline.
 2. The report's written_at is the publication date, not the event date. Never create an event on written_at unless the content explicitly says 오늘 and written_at is available.
 3. Resolve relative Korean dates from that report's written_at. Infer a missing year from written_at using the nearest future occurrence that fits the notice context.
-4. If a date is clear but no time is stated, create an all-day event with 00:00:00 through 23:59:59. Never invent a time.
+4. If a date is clear but no time is stated, create an all-day event with 00:00:00 through 23:59:59. Never invent a time. If a start time is stated but no end time or duration is stated, set endDate exactly one hour after startDate.
 5. A date range is one continuous event, not separate daily events.
 6. Split distinct obligations: for example, a consent-form deadline and a later field trip are two events.
 7. Omit past activity summaries, photo descriptions, menus without a date, vague announcements, and anything whose date cannot be resolved confidently.
 8. Preserve concrete preparation items, place, fee, and audience in content. Use a concise event title.
 9. startDate/endDate must be ISO 8601 with timezone offset ${getBaseOffset(referenceDate)}.
 10. category is study for school/class/assignment, personal for health/family, otherwise general. Deadlines are normally high priority.
-11. dateReason must explain in Korean which notice expression produced the date. evidence must quote a short relevant Korean excerpt and include the report id.
+11. dateReason must explain in Korean which notice expression produced the date. evidence must quote a short relevant Korean excerpt. Copy the enclosing KIDSNOTE_REPORT id into sourceId.
 12. confidence is 0 to 1; use below 0.65 when ambiguous.
 
 Return JSON only.`;
@@ -552,7 +552,21 @@ Return JSON only.`;
   }
 
   const events = deduplicateEvents(rawEvents
-    .map(event => normalizeExtractedEvent({ ...event, status: 'active' }, referenceDate))
+    .map(event => {
+      const normalized = normalizeExtractedEvent({
+        ...event,
+        status: 'active',
+        evidence: `키즈노트 #${String(event.sourceId || '?')}: ${String(event.evidence || '')}`
+      }, referenceDate);
+      if (!normalized || normalized.allDay) return normalized;
+      const startMs = new Date(normalized.startDate).getTime();
+      const endMs = new Date(normalized.endDate).getTime();
+      const endLooksLikeDayBoundary = /T23:59(?::59)?/.test(normalized.endDate);
+      if (endLooksLikeDayBoundary && endMs - startMs > 60 * 60 * 1000) {
+        normalized.endDate = formatEpochWithOffset(startMs + 60 * 60 * 1000, getBaseOffset(referenceDate));
+      }
+      return normalized;
+    })
     .filter(Boolean));
   return { events, reportCount: reports.length, analyzedCount: formatted.length };
 }
