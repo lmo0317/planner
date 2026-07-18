@@ -681,7 +681,8 @@ async function fetchKidsNoteReports(childId, cookie, options = {}) {
   }
 
   const reports = [];
-  let nextUrl = `https://www.kidsnote.com/api/v1_2/children/${childId}/reports/?page_size=100`;
+  const reportsEndpoint = `https://www.kidsnote.com/api/v1_2/children/${childId}/reports/?page_size=100`;
+  let nextUrl = reportsEndpoint;
   const maxPages = Math.max(1, Math.min(20, Number(options.maxPages) || 20));
   for (let page = 0; nextUrl && page < maxPages; page++) {
     const url = new URL(nextUrl, 'https://www.kidsnote.com');
@@ -714,7 +715,17 @@ async function fetchKidsNoteReports(childId, cookie, options = {}) {
     }
     const payload = await response.json();
     reports.push(...getKidsNoteReports(payload));
-    nextUrl = typeof payload.next === 'string' && payload.next ? payload.next : null;
+    if (typeof payload.next === 'string' && payload.next) {
+      if (/^\/[A-Za-z0-9_-]+$/.test(payload.next)) {
+        const cursorUrl = new URL(reportsEndpoint);
+        cursorUrl.searchParams.set('cursor', payload.next.slice(1));
+        nextUrl = cursorUrl.toString();
+      } else {
+        nextUrl = payload.next;
+      }
+    } else {
+      nextUrl = null;
+    }
   }
   return reports;
 }
