@@ -734,7 +734,7 @@ async function fetchKidsNoteReports(childId, cookie, options = {}) {
   return reports;
 }
 
-function chunkKidsNoteReports(reports, maxChars = 4500, maxChunks = 16) {
+function chunkKidsNoteReports(reports, maxChars = 5000, maxChunks = 4) {
   const chunks = [];
   let current = '';
   for (const report of reports) {
@@ -752,7 +752,12 @@ function chunkKidsNoteReports(reports, maxChars = 4500, maxChunks = 16) {
 }
 
 async function parseKidsNoteReports(reports, referenceDate) {
-  const formatted = reports.map(formatKidsNoteReport).filter(Boolean);
+  const scheduleNoticePattern = /(오늘|내일|모레|이번\s*주|다음\s*주|다다음\s*주|월요일|화요일|수요일|목요일|금요일|토요일|일요일|\d{1,2}\s*월\s*\d{1,2}\s*일|\d{1,2}[./-]\d{1,2}|까지|마감|제출|신청|준비물|지참|행사|견학|소풍|방학|휴원|수업|상담|검사|예방접종|입학|졸업|발표회|운동회)/i;
+  const formatted = reports
+    .map(formatKidsNoteReport)
+    .filter(Boolean)
+    .filter(report => scheduleNoticePattern.test(`${report.title}\n${report.content}`))
+    .slice(0, 40);
   const chunks = chunkKidsNoteReports(formatted);
   if (!chunks.length) return { events: [], reportCount: reports.length, analyzedCount: 0 };
 
@@ -852,7 +857,7 @@ app.post('/api/kidsnote/import', async (req, res) => {
     if (mode === 'saved_session') {
       const session = getSavedKidsNoteSession(req);
       if (!session) return res.status(401).json({ error: '저장된 키즈노트 로그인이 없거나 만료되었습니다.' });
-      reports = await fetchKidsNoteReports(session.childId, session.cookie, { enrollment: session.enrollment });
+      reports = await fetchKidsNoteReports(session.childId, session.cookie, { enrollment: session.enrollment, maxPages: 1 });
     } else if (mode === 'session') {
       reports = await fetchKidsNoteReports(childId, cookie);
     } else {
