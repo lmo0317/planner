@@ -215,6 +215,10 @@ body {
   -webkit-text-fill-color: transparent;
 }
 
+.mobile-tools-title {
+  display: none;
+}
+
 /* Buttons */
 .btn {
   display: inline-flex;
@@ -1506,5 +1510,266 @@ input[type="color"]::-webkit-color-swatch {
   .ai-schedule-footer .btn {
     padding: 10px 12px;
     font-size: 0.82rem;
+  }
+}
+
+/* Mobile-first calendar layout */
+@media (max-width: 768px) {
+  body {
+    min-height: 100svh;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .app-container {
+    width: 100%;
+    height: auto;
+    min-height: 100svh;
+    padding: 8px;
+    gap: 12px;
+    flex-direction: column;
+    overflow: visible;
+  }
+
+  .main-content {
+    order: 1;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    height: 820px;
+    min-height: 820px;
+    flex: none;
+    border-radius: 14px;
+  }
+
+  .sidebar {
+    order: 2;
+    width: 100%;
+    height: auto;
+    padding: 16px;
+    gap: 14px;
+    border-radius: 14px;
+  }
+
+  .sidebar .brand {
+    display: none;
+  }
+
+  .mobile-tools-title {
+    display: block;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  .sidebar > .btn {
+    width: 100%;
+    min-height: 46px;
+    margin-top: 0 !important;
+    justify-content: center;
+  }
+
+  .main-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 14px 12px;
+  }
+
+  .header-left,
+  .header-right {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .header-left {
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .header-left h2 {
+    font-size: 1.25rem;
+    white-space: nowrap;
+  }
+
+  .nav-buttons {
+    gap: 5px;
+    flex-shrink: 0;
+  }
+
+  .nav-buttons .btn-icon,
+  #theme-toggle {
+    width: 36px;
+    height: 36px;
+  }
+
+  #btn-today {
+    min-height: 36px;
+    padding: 7px 10px;
+  }
+
+  .header-right {
+    gap: 8px;
+  }
+
+  .search-box {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .search-box input,
+  .search-box input:focus {
+    width: 100%;
+    min-height: 40px;
+  }
+
+  #calendar-view {
+    min-height: 690px;
+  }
+
+  .calendar-days {
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    padding: 10px 0;
+    font-size: 0.82rem;
+  }
+
+  .calendar-grid {
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    min-height: 648px;
+    grid-template-rows: repeat(6, minmax(104px, 1fr));
+  }
+
+  .calendar-day {
+    min-width: 0;
+    min-height: 104px;
+    padding: 4px 3px;
+    gap: 2px;
+  }
+
+  .calendar-date-header {
+    min-height: 22px;
+    gap: 2px;
+  }
+
+  .day-number {
+    flex: 0 0 22px;
+    width: 22px;
+    height: 22px;
+    font-size: 0.78rem;
+  }
+
+  .holiday-name {
+    font-size: 0.56rem;
+    letter-spacing: -0.03em;
+  }
+
+  .day-events {
+    gap: 3px;
+    margin-left: -3px;
+    margin-right: -3px;
+  }
+
+  .event-item {
+    flex-basis: 20px;
+    min-height: 20px;
+    margin-left: 3px;
+    margin-right: 3px;
+    padding: 3px 4px;
+    font-size: 0.64rem;
+    line-height: 14px;
+    border-left-width: 2px;
+    border-radius: 4px;
+  }
+
+  .event-lane-placeholder {
+    flex-basis: 20px;
+    min-height: 20px;
+    margin-left: 3px;
+    margin-right: 3px;
+  }
+
+  .event-item.period-event.continues-before {
+    margin-left: 0;
+    padding-left: 4px;
+  }
+
+  .event-item.period-event.continues-after {
+    margin-right: 0;
+    padding-right: 4px;
+  }
+
+  .nav-menu {
+    gap: 14px;
+    overflow: visible;
+  }
+
+  .menu-section ul {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .menu-section li {
+    min-width: 0;
+    min-height: 42px;
+    padding: 8px 10px;
+    gap: 8px;
+    font-size: 0.82rem;
+  }
+
+  .menu-section li:hover {
+    padding-left: 10px;
+  }
+
+  .stats-widget {
+    padding: 14px;
+  }
+
+  .list-container {
+    padding: 14px;
+    gap: 14px;
+  }
+
+  .list-section {
+    min-width: 0;
+  }
+
+  .modal {
+    padding: 8px;
+    align-items: flex-start;
+    overflow-y: auto;
+  }
+
+  .modal-content,
+  #import-modal .modal-content,
+  .ai-schedule-modal-content {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: calc(100svh - 16px);
+    margin: 0;
+    padding: 18px;
+    overflow-y: auto;
+  }
+
+  .form-row {
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .modal-footer {
+    gap: 8px;
+  }
+
+  .modal-footer .btn {
+    padding: 10px 12px;
+  }
+
+  .toast {
+    width: calc(100% - 24px);
+    padding: 12px 16px;
   }
 }
