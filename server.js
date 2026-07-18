@@ -717,9 +717,12 @@ async function fetchKidsNoteReports(childId, cookie, options = {}) {
     reports.push(...getKidsNoteReports(payload));
     if (typeof payload.next === 'string' && payload.next) {
       const nextValue = payload.next.trim();
-      if (nextValue.startsWith('/') && !nextValue.startsWith('//') && !nextValue.includes('/children/')) {
+      if (!nextValue.includes('/children/')) {
+        const cursorSource = new URL(nextValue, reportsEndpoint);
+        const cursor = cursorSource.pathname.replace(/^\/+/, '');
+        if (!cursor || cursor.includes('/')) throw new Error('키즈노트 다음 페이지 커서가 올바르지 않습니다.');
         const cursorUrl = new URL(reportsEndpoint);
-        cursorUrl.searchParams.set('cursor', nextValue.slice(1));
+        cursorUrl.searchParams.set('cursor', cursor);
         nextUrl = cursorUrl.toString();
       } else {
         nextUrl = nextValue;
