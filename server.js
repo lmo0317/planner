@@ -734,7 +734,7 @@ async function fetchKidsNoteReports(childId, cookie, options = {}) {
   return reports;
 }
 
-function chunkKidsNoteReports(reports, maxChars = 5000, maxChunks = 4) {
+function chunkKidsNoteReports(reports, maxChars = 5000, maxChunks = 2) {
   const chunks = [];
   let current = '';
   for (const report of reports) {
@@ -760,6 +760,7 @@ async function parseKidsNoteReports(reports, referenceDate) {
     .slice(0, 40);
   const chunks = chunkKidsNoteReports(formatted);
   if (!chunks.length) return { events: [], reportCount: reports.length, analyzedCount: 0 };
+  const analyzedCount = chunks.reduce((count, chunk) => count + (chunk.match(/\[KIDSNOTE_REPORT\b/g) || []).length, 0);
 
   const schema = {
     type: 'object',
@@ -847,7 +848,7 @@ Return JSON only.`;
       return normalized;
     })
     .filter(Boolean));
-  return { events, reportCount: reports.length, analyzedCount: formatted.length };
+  return { events, reportCount: reports.length, analyzedCount };
 }
 
 app.post('/api/kidsnote/import', async (req, res) => {
