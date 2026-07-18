@@ -716,12 +716,13 @@ async function fetchKidsNoteReports(childId, cookie, options = {}) {
     const payload = await response.json();
     reports.push(...getKidsNoteReports(payload));
     if (typeof payload.next === 'string' && payload.next) {
-      if (/^\/[A-Za-z0-9_-]+$/.test(payload.next)) {
+      const nextValue = payload.next.trim();
+      if (nextValue.startsWith('/') && !nextValue.startsWith('//') && !nextValue.includes('/children/')) {
         const cursorUrl = new URL(reportsEndpoint);
-        cursorUrl.searchParams.set('cursor', payload.next.slice(1));
+        cursorUrl.searchParams.set('cursor', nextValue.slice(1));
         nextUrl = cursorUrl.toString();
       } else {
-        nextUrl = payload.next;
+        nextUrl = nextValue;
       }
     } else {
       nextUrl = null;
