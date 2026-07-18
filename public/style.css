@@ -1491,8 +1491,81 @@ input[type="color"]::-webkit-color-swatch {
   border-top: 1px solid var(--border-color);
 }
 
+/* KidsNote import */
+.kidsnote-modal-content {
+  width: 700px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  padding: 26px;
+}
+
+.kidsnote-drop-icon {
+  width: 48px;
+  height: 48px;
+  color: var(--success);
+  margin-bottom: 12px;
+}
+
+.kidsnote-security-note {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-radius: 10px;
+  color: var(--success);
+  background: rgba(16, 185, 129, 0.08);
+  font-size: 0.82rem;
+}
+
+.kidsnote-security-note svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.kidsnote-help {
+  margin-top: 6px;
+  padding: 11px 13px;
+  border-radius: 10px;
+  color: var(--text-secondary);
+  background: var(--border-color);
+  font-size: 0.82rem;
+}
+
+.kidsnote-help summary {
+  color: var(--text-primary);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.kidsnote-help ol {
+  margin: 10px 0 0 20px;
+  line-height: 1.7;
+}
+
+.kidsnote-help code {
+  color: var(--primary);
+}
+
+.kidsnote-summary {
+  margin: -5px 0 10px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.kidsnote-evidence {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
 @media (max-width: 640px) {
-  .ai-schedule-modal-content {
+  .ai-schedule-modal-content,
+  .kidsnote-modal-content {
     width: 94%;
     max-width: 94%;
     padding: 20px;

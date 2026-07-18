@@ -11,7 +11,7 @@
   <!-- Lucide Icons CDN -->
   <script src="https://unpkg.com/lucide@latest"></script>
   <!-- Tailwind/Vanilla CSS (Vanilla CSS will be structured in style.css) -->
-  <link rel="stylesheet" href="style.css?v=20260718-6">
+  <link rel="stylesheet" href="style.css?v=20260718-7">
 </head>
 <body class="dark-theme">
   <div class="glow-bg">
@@ -45,6 +45,11 @@
       <button id="btn-import-chat" class="btn btn-secondary" style="margin-top: -12px;">
         <i data-lucide="message-square-plus"></i>
         <span>카톡 대화 분석</span>
+      </button>
+
+      <button id="btn-import-kidsnote" class="btn btn-secondary" style="margin-top: -12px;">
+        <i data-lucide="school"></i>
+        <span>키즈노트 일정 가져오기</span>
       </button>
 
       <!-- Navigation & Filters -->
@@ -311,6 +316,82 @@
     </div>
   </div>
 
+  <!-- KidsNote Import Modal -->
+  <div id="kidsnote-modal" class="modal">
+    <div class="modal-content glass kidsnote-modal-content">
+      <span class="close-modal" id="close-kidsnote-modal"><i data-lucide="x"></i></span>
+      <h2>키즈노트 일정 가져오기</h2>
+      <p class="ai-schedule-guide">알림장 본문에서 행사·마감·준비물 일정을 찾아 등록 후보로 만듭니다.</p>
+
+      <div id="kidsnote-input-panel">
+        <div class="modal-tabs" id="kidsnote-tabs">
+          <button type="button" class="tab-btn active" data-kidsnote-mode="json">JSON 파일</button>
+          <button type="button" class="tab-btn" data-kidsnote-mode="session">로그인 세션</button>
+        </div>
+
+        <div id="kidsnote-json-panel">
+          <div class="drop-zone" id="kidsnote-drop-zone">
+            <i data-lucide="file-json" class="kidsnote-drop-icon"></i>
+            <p>키즈노트 API에서 저장한 JSON 파일을 선택하거나 끌어 놓으세요.</p>
+            <input type="file" id="kidsnote-file-input" accept=".json,application/json" hidden>
+          </div>
+          <div id="kidsnote-file-preview" class="file-name-preview hidden">
+            <i data-lucide="file-check"></i> <span id="kidsnote-filename"></span>
+          </div>
+        </div>
+
+        <div id="kidsnote-session-panel" class="hidden">
+          <div class="kidsnote-security-note">
+            <i data-lucide="shield-check"></i>
+            <span>쿠키는 이번 조회에만 사용하고 저장하지 않습니다. 현재 HTTP 내부망에서는 테스트 용도로만 사용하세요.</span>
+          </div>
+          <div class="form-group">
+            <label for="kidsnote-child-id">자녀 ID</label>
+            <input id="kidsnote-child-id" inputmode="numeric" autocomplete="off" placeholder="API 주소의 children/다음 숫자">
+          </div>
+          <div class="form-group">
+            <label for="kidsnote-cookie">로그인 Cookie</label>
+            <textarea id="kidsnote-cookie" rows="4" autocomplete="off" spellcheck="false" placeholder="Network → reports 요청 → Request Headers의 Cookie 값"></textarea>
+          </div>
+          <details class="kidsnote-help">
+            <summary>자녀 ID와 Cookie 찾는 방법</summary>
+            <ol>
+              <li>키즈노트 웹사이트에 직접 로그인합니다.</li>
+              <li>F12 → Network에서 아이 알림장 페이지를 엽니다.</li>
+              <li><code>/children/숫자/reports/</code> 요청의 숫자와 Cookie 헤더를 복사합니다.</li>
+            </ol>
+          </details>
+        </div>
+      </div>
+
+      <div id="kidsnote-loading" class="import-state-panel hidden">
+        <div class="spinner"></div>
+        <p>키즈노트 알림장을 읽고 일정을 분석하고 있습니다...</p>
+      </div>
+
+      <div id="kidsnote-preview" class="hidden">
+        <div class="ai-preview-header">
+          <h3>일정 후보 (<span id="kidsnote-count">0</span>)</h3>
+          <button type="button" id="btn-kidsnote-back" class="btn-text">다시 가져오기</button>
+        </div>
+        <p id="kidsnote-summary" class="kidsnote-summary"></p>
+        <div id="kidsnote-list" class="extracted-list ai-schedule-list"></div>
+      </div>
+
+      <div class="modal-footer ai-schedule-footer">
+        <button type="button" id="btn-cancel-kidsnote" class="btn btn-secondary">닫기</button>
+        <div class="footer-right">
+          <button type="button" id="btn-analyze-kidsnote" class="btn btn-ai">
+            <i data-lucide="scan-search"></i> 일정 분석
+          </button>
+          <button type="button" id="btn-save-kidsnote" class="btn btn-success hidden">
+            <i data-lucide="calendar-plus"></i> 선택 일정 등록 (<span id="kidsnote-selected-count">0</span>)
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- AI Natural Language Schedule Modal -->
   <div id="ai-schedule-modal" class="modal">
     <div class="modal-content glass ai-schedule-modal-content">
@@ -366,6 +447,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20260718-6"></script>
+  <script src="app.js?v=20260718-7"></script>
 </body>
 </html>

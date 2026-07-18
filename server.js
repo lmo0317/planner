@@ -384,6 +384,194 @@ function deduplicateEvents(events) {
   return Array.from(unique.values()).sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
 }
 
+function stripHtml(value) {
+  return String(value || '')
+    .replace(/<br\s*\/?\s*>/gi, '\n')
+    .replace(/<\/p\s*>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function getKidsNoteReports(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== 'object') return [];
+  if (Array.isArray(payload.results)) return payload.results;
+  if (payload.data) return getKidsNoteReports(payload.data);
+  return [];
+}
+
+function formatKidsNoteReport(report, index) {
+  if (!report || typeof report !== 'object') return null;
+  const content = stripHtml(report.content || report.body || report.text || report.description);
+  if (!content) return null;
+  const writtenAt = String(report.date_written || report.created_at || report.created || report.date || '').trim();
+  const title = stripHtml(report.title || report.subject || report.name || '알림장');
+  const sourceId = String(report.id || report.uuid || index + 1);
+  return {
+    sourceId,
+    writtenAt,
+    title,
+    content: content.slice(0, 12000),
+    text: `[KIDSNOTE_REPORT id=${sourceId} written_at=${writtenAt || 'unknown'}]\n제목: ${title}\n내용: ${content.slice(0, 12000)}`
+  };
+}
+
+async function fetchKidsNoteReports(childId, cookie) {
+  if (!/^\d+$/.test(String(childId || ''))) {
+    const error = new Error('자녀 ID는 숫자만 입력할 수 있습니다.');
+    error.status = 400;
+    throw error;
+  }
+  if (!cookie || typeof cookie !== 'string' || /[\r\n]/.test(cookie)) {
+    const error = new Error('유효한 키즈노트 Cookie가 필요합니다.');
+    error.status = 400;
+    throw error;
+  }
+
+  const reports = [];
+  let nextUrl = `https://www.kidsnote.com/api/v1_2/children/${childId}/reports/?page_size=100`;
+  for (let page = 0; nextUrl && page < 20; page++) {
+    const url = new URL(nextUrl, 'https://www.kidsnote.com');
+    if (url.protocol !== 'https:' || url.hostname !== 'www.kidsnote.com' || !url.pathname.startsWith('/api/v1_2/children/')) {
+      throw new Error('키즈노트 응답의 다음 페이지 주소가 올바르지 않습니다.');
+    }
+    const response = await fetch(url, {
+      headers: {
+        Cookie: cookie.trim(),
+        Accept: 'application/json',
+        'User-Agent': 'NEO-Planner-KidsNote-Importer/1.0'
+      },
+      redirect: 'manual',
+      signal: AbortSignal.timeout(15000)
+    });
+    if (response.status === 401 || response.status === 403 || response.status === 302) {
+      const error = new Error('키즈노트 로그인이 만료되었거나 Cookie가 올바르지 않습니다.');
+      error.status = 401;
+      throw error;
+    }
+    if (!response.ok) {
+      const error = new Error(`키즈노트 조회에 실패했습니다. (${response.status})`);
+      error.status = 502;
+      throw error;
+    }
+    const payload = await response.json();
+    reports.push(...getKidsNoteReports(payload));
+    nextUrl = typeof payload.next === 'string' && payload.next ? payload.next : null;
+  }
+  return reports;
+}
+
+function chunkKidsNoteReports(reports, maxChars = 9000, maxChunks = 12) {
+  const chunks = [];
+  let current = '';
+  for (const report of reports) {
+    const candidate = current ? `${current}\n\n${report.text}` : report.text;
+    if (candidate.length > maxChars && current) {
+      chunks.push(current);
+      current = report.text;
+      if (chunks.length >= maxChunks) break;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current && chunks.length < maxChunks) chunks.push(current);
+  return chunks;
+}
+
+async function parseKidsNoteReports(reports, referenceDate) {
+  const formatted = reports.map(formatKidsNoteReport).filter(Boolean);
+  const chunks = chunkKidsNoteReports(formatted);
+  if (!chunks.length) return { events: [], reportCount: reports.length, analyzedCount: 0 };
+
+  const schema = {
+    type: 'object',
+    properties: {
+      events: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            title: { type: 'string' }, content: { type: 'string' }, startDate: { type: 'string' },
+            endDate: { type: 'string' }, allDay: { type: 'boolean' },
+            priority: { type: 'string', enum: ['low', 'medium', 'high'] },
+            category: { type: 'string', enum: ['work', 'personal', 'study', 'general'] },
+            dateReason: { type: 'string' }, evidence: { type: 'string' }, confidence: { type: 'number' }
+          },
+          required: ['title', 'content', 'startDate', 'endDate', 'allDay', 'priority', 'category', 'dateReason', 'evidence', 'confidence'],
+          additionalProperties: false
+        }
+      }
+    },
+    required: ['events'],
+    additionalProperties: false
+  };
+  const prompt = `You extract actionable family calendar events from Korean KidsNote notices.
+Current reference time: ${referenceDate}
+
+RULES:
+1. Extract every explicit event date, attendance date, submission deadline, payment deadline, reservation, class, trip, holiday, or preparation deadline.
+2. The report's written_at is the publication date, not the event date. Never create an event on written_at unless the content explicitly says 오늘 and written_at is available.
+3. Resolve relative Korean dates from that report's written_at. Infer a missing year from written_at using the nearest future occurrence that fits the notice context.
+4. If a date is clear but no time is stated, create an all-day event with 00:00:00 through 23:59:59. Never invent a time.
+5. A date range is one continuous event, not separate daily events.
+6. Split distinct obligations: for example, a consent-form deadline and a later field trip are two events.
+7. Omit past activity summaries, photo descriptions, menus without a date, vague announcements, and anything whose date cannot be resolved confidently.
+8. Preserve concrete preparation items, place, fee, and audience in content. Use a concise event title.
+9. startDate/endDate must be ISO 8601 with timezone offset ${getBaseOffset(referenceDate)}.
+10. category is study for school/class/assignment, personal for health/family, otherwise general. Deadlines are normally high priority.
+11. dateReason must explain in Korean which notice expression produced the date. evidence must quote a short relevant Korean excerpt and include the report id.
+12. confidence is 0 to 1; use below 0.65 when ambiguous.
+
+Return JSON only.`;
+
+  const rawEvents = [];
+  for (const chunk of chunks) {
+    const response = await fetch(`${LLM_BASE_URL}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: LLM_MODEL,
+        messages: [{ role: 'system', content: prompt }, { role: 'user', content: chunk }],
+        temperature: 0,
+        max_tokens: 2200,
+        response_format: { type: 'json_schema', json_schema: { name: 'kidsnote_schedule_events', strict: true, schema } }
+      })
+    });
+    if (!response.ok) throw new Error(`AI 일정 분석에 실패했습니다. (${response.status})`);
+    const data = await response.json();
+    const parsed = JSON.parse(data.choices[0].message.content.trim());
+    rawEvents.push(...(parsed.events || []));
+  }
+
+  const events = deduplicateEvents(rawEvents
+    .map(event => normalizeExtractedEvent({ ...event, status: 'active' }, referenceDate))
+    .filter(Boolean));
+  return { events, reportCount: reports.length, analyzedCount: formatted.length };
+}
+
+app.post('/api/kidsnote/import', async (req, res) => {
+  try {
+    const { mode = 'json', childId, cookie, data, baseDate } = req.body || {};
+    const reports = mode === 'session'
+      ? await fetchKidsNoteReports(childId, cookie)
+      : getKidsNoteReports(data);
+    if (!reports.length) return res.status(400).json({ error: '분석할 키즈노트 알림장 데이터가 없습니다.' });
+    const result = await parseKidsNoteReports(reports, baseDate || new Date().toISOString());
+    res.json(result);
+  } catch (err) {
+    console.error('KidsNote import error:', err.message);
+    res.status(err.status || 500).json({ error: err.message || '키즈노트 데이터를 처리하지 못했습니다.' });
+  }
+});
+
 // Chat Parsing Route using remote/local LLM Server (llama-server) with Smart Chunking
 app.post('/api/todos/parse-chat', async (req, res) => {
   const { chatText, baseDate } = req.body;

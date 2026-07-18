@@ -78,11 +78,38 @@ const aiScheduleCount = document.getElementById('ai-schedule-count');
 const aiSelectedCount = document.getElementById('ai-selected-count');
 const aiScheduleClarification = document.getElementById('ai-schedule-clarification');
 
+// KidsNote Import DOM Elements
+const btnImportKidsNote = document.getElementById('btn-import-kidsnote');
+const kidsNoteModal = document.getElementById('kidsnote-modal');
+const closeKidsNoteModal = document.getElementById('close-kidsnote-modal');
+const btnCancelKidsNote = document.getElementById('btn-cancel-kidsnote');
+const btnAnalyzeKidsNote = document.getElementById('btn-analyze-kidsnote');
+const btnSaveKidsNote = document.getElementById('btn-save-kidsnote');
+const btnKidsNoteBack = document.getElementById('btn-kidsnote-back');
+const kidsNoteInputPanel = document.getElementById('kidsnote-input-panel');
+const kidsNoteJsonPanel = document.getElementById('kidsnote-json-panel');
+const kidsNoteSessionPanel = document.getElementById('kidsnote-session-panel');
+const kidsNoteDropZone = document.getElementById('kidsnote-drop-zone');
+const kidsNoteFileInput = document.getElementById('kidsnote-file-input');
+const kidsNoteFilePreview = document.getElementById('kidsnote-file-preview');
+const kidsNoteFilename = document.getElementById('kidsnote-filename');
+const kidsNoteChildId = document.getElementById('kidsnote-child-id');
+const kidsNoteCookie = document.getElementById('kidsnote-cookie');
+const kidsNoteLoading = document.getElementById('kidsnote-loading');
+const kidsNotePreview = document.getElementById('kidsnote-preview');
+const kidsNoteList = document.getElementById('kidsnote-list');
+const kidsNoteCount = document.getElementById('kidsnote-count');
+const kidsNoteSummary = document.getElementById('kidsnote-summary');
+const kidsNoteSelectedCount = document.getElementById('kidsnote-selected-count');
+
 // Chat Import State
 let extractedEventsState = [];
 let extractedChatText = '';
 let activeImportTab = 'tab-file';
 let aiScheduleEventsState = [];
+let kidsNoteMode = 'json';
+let kidsNoteJsonData = null;
+let kidsNoteEventsState = [];
 
 // Initialize application
 document.addEventListener('DOMContentLoaded', () => {
@@ -90,6 +117,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
   setupImportEventListeners();
   setupAiScheduleEventListeners();
+  setupKidsNoteEventListeners();
   fetchTodos();
 });
 
@@ -936,7 +964,7 @@ function setupImportEventListeners() {
   });
 
   // Tab switching
-  const tabButtons = document.querySelectorAll('.modal-tabs .tab-btn');
+  const tabButtons = importModal.querySelectorAll('.modal-tabs .tab-btn');
   tabButtons.forEach(btn => {
     btn.addEventListener('click', () => {
       tabButtons.forEach(b => b.classList.remove('active'));
@@ -945,7 +973,7 @@ function setupImportEventListeners() {
       const targetPanel = btn.dataset.tab;
       activeImportTab = targetPanel;
       
-      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      importModal.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       document.getElementById(targetPanel).classList.add('active');
     });
   });
@@ -1277,6 +1305,236 @@ async function saveImportedSchedules() {
     console.error(error);
     showToast(error.message, 'danger');
     btnSaveImported.disabled = false;
+  }
+}
+
+// KidsNote notice import flow
+function setupKidsNoteEventListeners() {
+  btnImportKidsNote.addEventListener('click', () => {
+    resetKidsNoteModal();
+    kidsNoteModal.classList.add('open');
+  });
+  closeKidsNoteModal.addEventListener('click', closeKidsNote);
+  btnCancelKidsNote.addEventListener('click', closeKidsNote);
+  btnAnalyzeKidsNote.addEventListener('click', analyzeKidsNote);
+  btnSaveKidsNote.addEventListener('click', saveKidsNoteSchedules);
+  btnKidsNoteBack.addEventListener('click', showKidsNoteInput);
+  window.addEventListener('click', event => {
+    if (event.target === kidsNoteModal) closeKidsNote();
+  });
+
+  document.querySelectorAll('#kidsnote-tabs [data-kidsnote-mode]').forEach(button => {
+    button.addEventListener('click', () => {
+      kidsNoteMode = button.dataset.kidsnoteMode;
+      document.querySelectorAll('#kidsnote-tabs [data-kidsnote-mode]').forEach(item => item.classList.toggle('active', item === button));
+      kidsNoteJsonPanel.classList.toggle('hidden', kidsNoteMode !== 'json');
+      kidsNoteSessionPanel.classList.toggle('hidden', kidsNoteMode !== 'session');
+    });
+  });
+
+  kidsNoteDropZone.addEventListener('click', () => kidsNoteFileInput.click());
+  kidsNoteFileInput.addEventListener('change', event => {
+    if (event.target.files[0]) readKidsNoteFile(event.target.files[0]);
+  });
+  kidsNoteDropZone.addEventListener('dragover', event => {
+    event.preventDefault();
+    kidsNoteDropZone.classList.add('dragover');
+  });
+  kidsNoteDropZone.addEventListener('dragleave', () => kidsNoteDropZone.classList.remove('dragover'));
+  kidsNoteDropZone.addEventListener('drop', event => {
+    event.preventDefault();
+    kidsNoteDropZone.classList.remove('dragover');
+    if (event.dataTransfer.files[0]) readKidsNoteFile(event.dataTransfer.files[0]);
+  });
+}
+
+function closeKidsNote() {
+  kidsNoteModal.classList.remove('open');
+  kidsNoteCookie.value = '';
+}
+
+function resetKidsNoteModal() {
+  kidsNoteMode = 'json';
+  kidsNoteJsonData = null;
+  kidsNoteEventsState = [];
+  kidsNoteFileInput.value = '';
+  kidsNoteFilePreview.classList.add('hidden');
+  kidsNoteFilename.textContent = '';
+  kidsNoteChildId.value = '';
+  kidsNoteCookie.value = '';
+  kidsNoteJsonPanel.classList.remove('hidden');
+  kidsNoteSessionPanel.classList.add('hidden');
+  document.querySelectorAll('#kidsnote-tabs [data-kidsnote-mode]').forEach(button => button.classList.toggle('active', button.dataset.kidsnoteMode === 'json'));
+  showKidsNoteInput();
+}
+
+function showKidsNoteInput() {
+  kidsNoteInputPanel.classList.remove('hidden');
+  kidsNoteLoading.classList.add('hidden');
+  kidsNotePreview.classList.add('hidden');
+  kidsNoteList.innerHTML = '';
+  kidsNoteCount.textContent = '0';
+  kidsNoteSelectedCount.textContent = '0';
+  btnAnalyzeKidsNote.classList.remove('hidden');
+  btnAnalyzeKidsNote.disabled = false;
+  btnSaveKidsNote.classList.add('hidden');
+  btnSaveKidsNote.disabled = false;
+}
+
+function readKidsNoteFile(file) {
+  if (!file.name.toLowerCase().endsWith('.json')) {
+    showToast('키즈노트 JSON 파일을 선택해 주세요.', 'danger');
+    return;
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    showToast('JSON 파일은 10MB 이하만 분석할 수 있습니다.', 'danger');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      kidsNoteJsonData = JSON.parse(reader.result);
+      kidsNoteFilename.textContent = file.name;
+      kidsNoteFilePreview.classList.remove('hidden');
+      showToast('키즈노트 JSON을 불러왔습니다.', 'success');
+    } catch {
+      kidsNoteJsonData = null;
+      kidsNoteFilePreview.classList.add('hidden');
+      showToast('올바른 JSON 파일이 아닙니다.', 'danger');
+    }
+  };
+  reader.onerror = () => showToast('파일을 읽지 못했습니다.', 'danger');
+  reader.readAsText(file);
+}
+
+async function analyzeKidsNote() {
+  const payload = { mode: kidsNoteMode, baseDate: formatLocalIsoWithOffset() };
+  if (kidsNoteMode === 'json') {
+    if (!kidsNoteJsonData) {
+      showToast('분석할 키즈노트 JSON 파일을 선택해 주세요.', 'danger');
+      return;
+    }
+    payload.data = kidsNoteJsonData;
+  } else {
+    payload.childId = kidsNoteChildId.value.trim();
+    payload.cookie = kidsNoteCookie.value.trim();
+    if (!payload.childId || !payload.cookie) {
+      showToast('자녀 ID와 로그인 Cookie를 모두 입력해 주세요.', 'danger');
+      return;
+    }
+  }
+
+  kidsNoteInputPanel.classList.add('hidden');
+  kidsNotePreview.classList.add('hidden');
+  kidsNoteLoading.classList.remove('hidden');
+  btnAnalyzeKidsNote.disabled = true;
+  try {
+    const response = await fetch('/api/kidsnote/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || '키즈노트 데이터를 분석하지 못했습니다.');
+    kidsNoteCookie.value = '';
+    kidsNoteEventsState = Array.isArray(result.events) ? result.events : [];
+    kidsNoteLoading.classList.add('hidden');
+    kidsNotePreview.classList.remove('hidden');
+    btnAnalyzeKidsNote.classList.add('hidden');
+    kidsNoteSummary.textContent = `알림장 ${result.reportCount || 0}건 중 본문 ${result.analyzedCount || 0}건을 분석했습니다.`;
+    renderKidsNoteCandidates();
+    btnSaveKidsNote.classList.toggle('hidden', kidsNoteEventsState.length === 0);
+  } catch (error) {
+    kidsNoteCookie.value = '';
+    kidsNoteLoading.classList.add('hidden');
+    kidsNoteInputPanel.classList.remove('hidden');
+    btnAnalyzeKidsNote.disabled = false;
+    showToast(error.message, 'danger');
+  }
+}
+
+function renderKidsNoteCandidates() {
+  kidsNoteList.innerHTML = '';
+  kidsNoteCount.textContent = kidsNoteEventsState.length;
+  if (!kidsNoteEventsState.length) {
+    kidsNoteList.innerHTML = '<div class="todo-empty-state">날짜가 명확한 일정 후보를 찾지 못했습니다.</div>';
+    updateKidsNoteSelectedCount();
+    return;
+  }
+  kidsNoteEventsState.forEach((event, index) => {
+    const card = document.createElement('div');
+    card.className = 'extracted-card';
+    card.dataset.index = index;
+    card.style.borderLeft = `4px solid ${event.color || '#10b981'}`;
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = true;
+    checkbox.className = 'extracted-card-checkbox kidsnote-schedule-checkbox';
+    checkbox.addEventListener('change', () => {
+      card.classList.toggle('disabled', !checkbox.checked);
+      updateKidsNoteSelectedCount();
+    });
+    const details = document.createElement('div');
+    details.className = 'extracted-card-details';
+    const title = document.createElement('input');
+    title.className = 'extracted-card-title';
+    title.value = event.title;
+    title.addEventListener('input', inputEvent => { kidsNoteEventsState[index].title = inputEvent.target.value; });
+    details.appendChild(title);
+    const dates = document.createElement('div');
+    dates.className = 'ai-schedule-dates';
+    dates.appendChild(createAiDateField('시작', event.startDate, value => { kidsNoteEventsState[index].startDate = value; }, event.allDay, false));
+    dates.appendChild(createAiDateField('종료', event.endDate, value => { kidsNoteEventsState[index].endDate = value; }, event.allDay, true));
+    details.appendChild(dates);
+    if (event.content) {
+      const content = document.createElement('div');
+      content.className = 'extracted-card-desc';
+      content.textContent = event.content;
+      details.appendChild(content);
+    }
+    if (event.dateReason) {
+      const reason = document.createElement('div');
+      reason.className = 'extracted-card-reason';
+      reason.textContent = `날짜 판단: ${event.dateReason}`;
+      details.appendChild(reason);
+    }
+    if (event.evidence) {
+      const evidence = document.createElement('div');
+      evidence.className = 'kidsnote-evidence';
+      evidence.textContent = `근거: ${event.evidence}`;
+      details.appendChild(evidence);
+    }
+    card.appendChild(checkbox);
+    card.appendChild(details);
+    kidsNoteList.appendChild(card);
+  });
+  updateKidsNoteSelectedCount();
+  lucide.createIcons();
+}
+
+function updateKidsNoteSelectedCount() {
+  kidsNoteSelectedCount.textContent = kidsNoteList.querySelectorAll('.kidsnote-schedule-checkbox:checked').length;
+}
+
+async function saveKidsNoteSchedules() {
+  const selected = Array.from(kidsNoteList.querySelectorAll('.kidsnote-schedule-checkbox:checked'))
+    .map(checkbox => kidsNoteEventsState[Number(checkbox.closest('.extracted-card').dataset.index)]);
+  if (!selected.length) {
+    showToast('등록할 일정을 선택해 주세요.', 'danger');
+    return;
+  }
+  btnSaveKidsNote.disabled = true;
+  try {
+    const responses = await Promise.all(selected.map(task => fetch('/api/todos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(task)
+    })));
+    if (responses.some(response => !response.ok)) throw new Error('일부 일정을 등록하지 못했습니다.');
+    closeKidsNote();
+    await fetchTodos();
+    showToast(`${selected.length}개의 키즈노트 일정을 등록했습니다.`, 'success');
+  } catch (error) {
+    btnSaveKidsNote.disabled = false;
+    showToast(error.message, 'danger');
   }
 }
 
