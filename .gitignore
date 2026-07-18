@@ -1,0 +1,10 @@
+node_modules/
+.env
+data/db.json
+__pycache__/
+*.py[cod]
+*.log
+backups/
+.DS_Store
+Thumbs.db
+

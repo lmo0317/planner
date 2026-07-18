@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NEO Planner - 스마트 일정 관리</title>
+  <!-- Google Fonts: Space Grotesk & Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Tailwind/Vanilla CSS (Vanilla CSS will be structured in style.css) -->
+  <link rel="stylesheet" href="style.css?v=20260718-5">
+</head>
+<body class="dark-theme">
+  <div class="glow-bg">
+    <div class="ball ball1"></div>
+    <div class="ball ball2"></div>
+    <div class="ball ball3"></div>
+  </div>
+
+  <div class="app-container">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="logo-icon">
+          <i data-lucide="calendar-check-2"></i>
+        </div>
+        <h1>NEO Planner</h1>
+      </div>
+
+      <button id="btn-new-task" class="btn btn-primary">
+        <i data-lucide="plus"></i>
+        <span>새 일정 추가</span>
+      </button>
+
+      <button id="btn-ai-schedule" class="btn btn-ai" style="margin-top: -12px;">
+        <i data-lucide="sparkles"></i>
+        <span>AI 일정 추가</span>
+      </button>
+
+      <button id="btn-import-chat" class="btn btn-secondary" style="margin-top: -12px;">
+        <i data-lucide="message-square-plus"></i>
+        <span>카톡 대화 분석</span>
+      </button>
+
+      <!-- Navigation & Filters -->
+      <nav class="nav-menu">
+        <div class="menu-section">
+          <h3>보기 방식</h3>
+          <ul>
+            <li class="active" data-view="month">
+              <i data-lucide="calendar"></i> <span>월간 달력</span>
+            </li>
+            <li data-view="list">
+              <i data-lucide="list-todo"></i> <span>목록 보기</span>
+            </li>
+          </ul>
+        </div>
+
+        <div class="menu-section">
+          <h3>카테고리 필터</h3>
+          <ul id="category-filters">
+            <li class="active" data-category="all">
+              <span class="color-dot all"></span> <span>전체 일정</span>
+            </li>
+            <li data-category="work">
+              <span class="color-dot work"></span> <span>업무 (Work)</span>
+            </li>
+            <li data-category="personal">
+              <span class="color-dot personal"></span> <span>개인 (Personal)</span>
+            </li>
+            <li data-category="study">
+              <span class="color-dot study"></span> <span>학습 (Study)</span>
+            </li>
+            <li data-category="general">
+              <span class="color-dot general"></span> <span>기타 (General)</span>
+            </li>
+          </ul>
+        </div>
+
+        <div class="menu-section">
+          <h3>우선순위 필터</h3>
+          <ul id="priority-filters">
+            <li class="active" data-priority="all">
+              <i data-lucide="sliders"></i> <span>모든 우선순위</span>
+            </li>
+            <li data-priority="high">
+              <i data-lucide="alert-triangle" class="priority-high"></i> <span>높음</span>
+            </li>
+            <li data-priority="medium">
+              <i data-lucide="alert-circle" class="priority-medium"></i> <span>보통</span>
+            </li>
+            <li data-priority="low">
+              <i data-lucide="help-circle" class="priority-low"></i> <span>낮음</span>
+            </li>
+          </ul>
+        </div>
+      </nav>
+
+      <!-- Stats Widget -->
+      <div class="stats-widget">
+        <h4>오늘의 달성도</h4>
+        <div class="progress-bar-container">
+          <div class="progress-bar" id="today-progress" style="width: 0%"></div>
+        </div>
+        <div class="stats-text">
+          <span id="completed-count">0</span> / <span id="total-count">0</span> 완료됨
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <header class="main-header">
+        <div class="header-left">
+          <h2 id="current-view-title">2026년 7월</h2>
+          <div class="nav-buttons">
+            <button id="btn-prev" class="btn-icon"><i data-lucide="chevron-left"></i></button>
+            <button id="btn-today" class="btn btn-secondary">오늘</button>
+            <button id="btn-next" class="btn-icon"><i data-lucide="chevron-right"></i></button>
+          </div>
+        </div>
+        <div class="header-right">
+          <!-- Search Bar -->
+          <div class="search-box">
+            <i data-lucide="search"></i>
+            <input type="text" id="search-input" placeholder="일정 검색...">
+          </div>
+          <!-- Theme Toggle -->
+          <button id="theme-toggle" class="btn-icon">
+            <i data-lucide="sun" class="sun-icon"></i>
+            <i data-lucide="moon" class="moon-icon"></i>
+          </button>
+        </div>
+      </header>
+
+      <!-- Calendar View Wrapper -->
+      <div id="calendar-view" class="view-panel active">
+        <!-- Calendar Header (Days of week) -->
+        <div class="calendar-days">
+          <div>일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div>토</div>
+        </div>
+        <!-- Calendar Grid -->
+        <div id="calendar-grid" class="calendar-grid"></div>
+      </div>
+
+      <!-- List View Wrapper -->
+      <div id="list-view" class="view-panel">
+        <div class="list-container">
+          <div class="list-section">
+            <h3>대기중인 일정 (<span id="pending-list-count">0</span>)</h3>
+            <div id="pending-list" class="todo-list">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+          <div class="list-section">
+            <h3>완료된 일정 (<span id="completed-list-count">0</span>)</h3>
+            <div id="completed-list" class="todo-list completed-list">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Task Modal (Add/Edit) -->
+  <div id="task-modal" class="modal">
+    <div class="modal-content glass">
+      <span class="close-modal"><i data-lucide="x"></i></span>
+      <h2 id="modal-title">새 일정 추가</h2>
+      <form id="task-form">
+        <input type="hidden" id="task-id">
+        
+        <div class="form-group">
+          <label for="task-title">일정 제목</label>
+          <input type="text" id="task-title" required placeholder="예: 프로젝트 기획 회의">
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="task-start-date">시작 일시</label>
+            <input type="datetime-local" id="task-start-date" required>
+          </div>
+          <div class="form-group">
+            <label for="task-end-date">종료 일시</label>
+            <input type="datetime-local" id="task-end-date" required>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="task-category">카테고리</label>
+            <select id="task-category">
+              <option value="general">기타 (General)</option>
+              <option value="work">업무 (Work)</option>
+              <option value="personal">개인 (Personal)</option>
+              <option value="study">학습 (Study)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="task-priority">우선순위</label>
+            <select id="task-priority">
+              <option value="low">낮음</option>
+              <option value="medium" selected>보통</option>
+              <option value="high">높음</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="task-color">색상 테마</label>
+          <div class="color-picker-wrapper">
+            <input type="color" id="task-color" value="#4f46e5">
+            <div class="preset-colors">
+              <span class="preset-color" style="background-color: #4f46e5" data-color="#4f46e5"></span>
+              <span class="preset-color" style="background-color: #06b6d4" data-color="#06b6d4"></span>
+              <span class="preset-color" style="background-color: #10b981" data-color="#10b981"></span>
+              <span class="preset-color" style="background-color: #f59e0b" data-color="#f59e0b"></span>
+              <span class="preset-color" style="background-color: #ef4444" data-color="#ef4444"></span>
+              <span class="preset-color" style="background-color: #ec4899" data-color="#ec4899"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="task-content">상세 메모</label>
+          <textarea id="task-content" rows="3" placeholder="메모할 세부 내용을 입력하세요..."></textarea>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" id="btn-delete-task" class="btn btn-danger hidden">
+            <i data-lucide="trash-2"></i> 삭제
+          </button>
+          <div class="footer-right">
+            <button type="button" id="btn-cancel-modal" class="btn btn-secondary">취소</button>
+            <button type="submit" id="btn-save-task" class="btn btn-primary">저장</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Chat Import Modal -->
+  <div id="import-modal" class="modal">
+    <div class="modal-content glass" style="width: 600px; max-height: 85vh; display: flex; flex-direction: column; padding: 24px;">
+      <span class="close-modal" id="close-import-modal"><i data-lucide="x"></i></span>
+      <h2 style="margin-bottom: 16px;">카카오톡 대화 분석 (AI)</h2>
+      
+      <!-- Input Mode Selection Tabs -->
+      <div class="modal-tabs">
+        <button type="button" class="tab-btn active" data-tab="tab-file">파일 업로드</button>
+        <button type="button" class="tab-btn" data-tab="tab-text">대화 직접 입력</button>
+      </div>
+
+      <!-- Tab Contents -->
+      <div class="tab-panels" style="flex-grow: 1; overflow-y: auto; margin-bottom: 16px;">
+        <!-- File Upload Panel -->
+        <div id="tab-file" class="tab-panel active">
+          <div class="drop-zone" id="chat-drop-zone">
+            <i data-lucide="file-text" style="width: 48px; height: 48px; color: var(--primary); margin-bottom: 12px;"></i>
+            <p>카카오톡 내보내기 대화 파일(.txt)을 이곳에 드래그하거나 클릭하여 업로드하세요.</p>
+            <input type="file" id="chat-file-input" accept=".txt" style="display: none;">
+          </div>
+          <div id="file-name-preview" class="file-name-preview hidden">
+            <i data-lucide="file-check"></i> <span id="uploaded-filename">chat.txt</span>
+          </div>
+        </div>
+
+        <!-- Text Paste Panel -->
+        <div id="tab-text" class="tab-panel">
+          <div class="form-group">
+            <label for="chat-text-area">대화 내용 붙여넣기</label>
+            <textarea id="chat-text-area" rows="8" placeholder="예:
+[철수] [오후 2:30] 내일 오후 3시에 회의 어때?
+[영희] [오후 2:31] 좋아 1시간 동안 진행하자!"></textarea>
+          </div>
+        </div>
+
+        <!-- Loading Screen -->
+        <div id="import-loading" class="import-state-panel hidden">
+          <div class="spinner"></div>
+          <p>AI가 대화 흐름을 분석하여 일정을 추출하고 있습니다...</p>
+        </div>
+
+        <!-- Preview Results Panel -->
+        <div id="import-preview" class="import-state-panel hidden">
+          <h3 style="font-size: 1rem; margin-bottom: 12px; font-family: 'Space Grotesk';">추출된 일정 목록 (<span id="extracted-count">0</span>)</h3>
+          <div id="extracted-schedules-list" class="extracted-list">
+            <!-- Dynamic schedule cards with checkboxes -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal Action Footer -->
+      <div class="modal-footer" style="margin-top: auto; border-top: 1px solid var(--border-color); padding-top: 16px;">
+        <button type="button" id="btn-cancel-import" class="btn btn-secondary">닫기</button>
+        <div class="footer-right">
+          <button type="button" id="btn-process-import" class="btn btn-primary">
+            <i data-lucide="brain"></i> 분석하기
+          </button>
+          <button type="button" id="btn-save-imported" class="btn btn-success hidden">
+            <i data-lucide="save"></i> 일정 등록 (<span id="selected-import-count">0</span>)
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI Natural Language Schedule Modal -->
+  <div id="ai-schedule-modal" class="modal">
+    <div class="modal-content glass ai-schedule-modal-content">
+      <span class="close-modal" id="close-ai-schedule-modal"><i data-lucide="x"></i></span>
+      <h2>AI 일정 추가</h2>
+      <p class="ai-schedule-guide">원하는 일정을 자연스럽게 입력하면 등록 후보를 만들어드립니다. 시간이 없으면 종일 일정으로 판단합니다.</p>
+
+      <div id="ai-schedule-input-panel">
+        <div class="form-group">
+          <label for="ai-schedule-text">일정 내용</label>
+          <textarea id="ai-schedule-text" rows="6" placeholder="예: 다음 주 화요일 오후 3시에 강남 치과 예약하고, 수요일 오전 10시에는 팀 회의 추가해줘"></textarea>
+        </div>
+        <div class="ai-example-list">
+          <span>입력 예시</span>
+          <button type="button" class="ai-example-chip">내일 오후 3시 치과 예약</button>
+          <button type="button" class="ai-example-chip">다음 주 월요일 오전 10시 팀 회의</button>
+        </div>
+      </div>
+
+      <div id="ai-schedule-loading" class="import-state-panel hidden">
+        <div class="spinner"></div>
+        <p>AI가 날짜와 시간을 확인하고 있습니다...</p>
+      </div>
+
+      <div id="ai-schedule-preview" class="hidden">
+        <div class="ai-preview-header">
+          <h3>추출된 일정 (<span id="ai-schedule-count">0</span>)</h3>
+          <button type="button" id="btn-ai-schedule-back" class="btn-text">다시 입력</button>
+        </div>
+        <div id="ai-schedule-clarification" class="ai-clarification hidden"></div>
+        <div id="ai-schedule-list" class="extracted-list ai-schedule-list"></div>
+      </div>
+
+      <div class="modal-footer ai-schedule-footer">
+        <button type="button" id="btn-cancel-ai-schedule" class="btn btn-secondary">닫기</button>
+        <div class="footer-right">
+          <button type="button" id="btn-analyze-ai-schedule" class="btn btn-ai">
+            <i data-lucide="wand-sparkles"></i> 일정 확인
+          </button>
+          <button type="button" id="btn-save-ai-schedules" class="btn btn-success hidden">
+            <i data-lucide="calendar-plus"></i> 선택 일정 등록 (<span id="ai-selected-count">0</span>)
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Notification Toast -->
+  <div id="toast" class="toast">
+    <div class="toast-content">
+      <i data-lucide="info" id="toast-icon"></i>
+      <span id="toast-message">메시지 내용</span>
+    </div>
+  </div>
+
+  <script src="app.js?v=20260718-5"></script>
+</body>
+</html>
