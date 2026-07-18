@@ -1526,6 +1526,41 @@ input[type="color"]::-webkit-color-swatch {
   flex-shrink: 0;
 }
 
+.kidsnote-connection-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  margin-bottom: 14px;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 12px;
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--success);
+  font-size: 0.86rem;
+}
+
+.kidsnote-connection-status.hidden {
+  display: none;
+}
+
+.kidsnote-connection-status > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kidsnote-connection-status svg {
+  width: 17px;
+  height: 17px;
+}
+
+.kidsnote-login-button {
+  width: 100%;
+  justify-content: center;
+  margin-top: 2px;
+}
+
 .kidsnote-help {
   margin-top: 6px;
   padding: 11px 13px;

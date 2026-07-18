@@ -3,12 +3,19 @@ const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
 const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
+const https = require('https');
 const db = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const LLM_BASE_URL = (process.env.LLM_BASE_URL || 'http://localhost:8081').replace(/\/$/, '');
 const LLM_MODEL = process.env.LLM_MODEL || 'gemma-4-e4b-it-q4km';
+const KIDSNOTE_SESSION_SECRET = process.env.KIDSNOTE_SESSION_SECRET || '';
+const KIDSNOTE_SESSION_COOKIE = 'planner_kidsnote_session';
+const KIDSNOTE_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const KIDSNOTE_SESSION_FILE = path.join(__dirname, 'data', 'kidsnote-sessions.json');
 
 let koreanHolidayModulePromise;
 
@@ -408,6 +415,171 @@ function getKidsNoteReports(payload) {
   return [];
 }
 
+function parseRequestCookies(req) {
+  return String(req.headers.cookie || '').split(';').reduce((cookies, part) => {
+    const separator = part.indexOf('=');
+    if (separator < 1) return cookies;
+    cookies[part.slice(0, separator).trim()] = decodeURIComponent(part.slice(separator + 1).trim());
+    return cookies;
+  }, {});
+}
+
+function mergeSetCookies(existingCookie, setCookieHeaders = []) {
+  const values = new Map();
+  String(existingCookie || '').split(';').forEach(part => {
+    const separator = part.indexOf('=');
+    if (separator > 0) values.set(part.slice(0, separator).trim(), part.slice(separator + 1).trim());
+  });
+  for (const header of setCookieHeaders || []) {
+    const pair = String(header).split(';', 1)[0];
+    const separator = pair.indexOf('=');
+    if (separator > 0) values.set(pair.slice(0, separator).trim(), pair.slice(separator + 1).trim());
+  }
+  return Array.from(values, ([name, value]) => `${name}=${value}`).join('; ');
+}
+
+function kidsNoteWebRequest({ method = 'GET', requestPath, body = '', cookie = '' }) {
+  return new Promise((resolve, reject) => {
+    const request = https.request({
+      hostname: 'www.kidsnote.com',
+      port: 443,
+      path: requestPath,
+      method,
+      headers: {
+        Accept: 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'ko-KR,ko;q=0.9',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(body),
+        Origin: 'https://www.kidsnote.com',
+        Referer: 'https://www.kidsnote.com/login',
+        Cookie: cookie,
+        'User-Agent': 'Mozilla/5.0 NEO-Planner-KidsNote-Connector/1.0'
+      },
+      timeout: 15000
+    }, response => {
+      const chunks = [];
+      let size = 0;
+      response.on('data', chunk => {
+        size += chunk.length;
+        if (size <= 2 * 1024 * 1024) chunks.push(chunk);
+      });
+      response.on('end', () => resolve({
+        status: response.statusCode || 0,
+        location: response.headers.location || '',
+        setCookies: response.headers['set-cookie'] || [],
+        body: Buffer.concat(chunks).toString('utf8')
+      }));
+    });
+    request.on('timeout', () => request.destroy(new Error('키즈노트 로그인 시간이 초과되었습니다.')));
+    request.on('error', reject);
+    if (body) request.write(body);
+    request.end();
+  });
+}
+
+async function loginToKidsNote(username, password) {
+  const loginPage = await kidsNoteWebRequest({ requestPath: '/login' });
+  let cookie = mergeSetCookies('', loginPage.setCookies);
+  const body = new URLSearchParams({ username, password, remember_me: 'on' }).toString();
+  const result = await kidsNoteWebRequest({ method: 'POST', requestPath: '/kr/login', body, cookie });
+  cookie = mergeSetCookies(cookie, result.setCookies);
+  const redirectedAwayFromLogin = result.status >= 300 && result.status < 400 && result.location && !/\/login(?:\?|$)/.test(result.location);
+  if (!redirectedAwayFromLogin || !cookie) {
+    const error = new Error('키즈노트 아이디 또는 비밀번호가 올바르지 않거나 추가 인증이 필요합니다.');
+    error.status = 401;
+    throw error;
+  }
+  return cookie;
+}
+
+function getKidsNoteEncryptionKey() {
+  if (!KIDSNOTE_SESSION_SECRET || KIDSNOTE_SESSION_SECRET.length < 32) {
+    const error = new Error('키즈노트 세션 암호화 키가 설정되지 않았습니다.');
+    error.status = 503;
+    throw error;
+  }
+  return crypto.createHash('sha256').update(KIDSNOTE_SESSION_SECRET).digest();
+}
+
+function encryptKidsNoteCookie(value) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', getKidsNoteEncryptionKey(), iv);
+  const ciphertext = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
+  return `${iv.toString('base64url')}.${cipher.getAuthTag().toString('base64url')}.${ciphertext.toString('base64url')}`;
+}
+
+function decryptKidsNoteCookie(value) {
+  const [ivValue, tagValue, ciphertextValue] = String(value || '').split('.');
+  if (!ivValue || !tagValue || !ciphertextValue) throw new Error('저장된 키즈노트 세션이 손상되었습니다.');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', getKidsNoteEncryptionKey(), Buffer.from(ivValue, 'base64url'));
+  decipher.setAuthTag(Buffer.from(tagValue, 'base64url'));
+  return Buffer.concat([decipher.update(Buffer.from(ciphertextValue, 'base64url')), decipher.final()]).toString('utf8');
+}
+
+function readKidsNoteSessions() {
+  try {
+    const sessions = JSON.parse(fs.readFileSync(KIDSNOTE_SESSION_FILE, 'utf8'));
+    return sessions && typeof sessions === 'object' ? sessions : {};
+  } catch (error) {
+    if (error.code !== 'ENOENT') console.error('Failed to read KidsNote sessions:', error.message);
+    return {};
+  }
+}
+
+function writeKidsNoteSessions(sessions) {
+  fs.mkdirSync(path.dirname(KIDSNOTE_SESSION_FILE), { recursive: true });
+  const temporaryPath = `${KIDSNOTE_SESSION_FILE}.tmp`;
+  fs.writeFileSync(temporaryPath, JSON.stringify(sessions, null, 2), { encoding: 'utf8', mode: 0o600 });
+  fs.renameSync(temporaryPath, KIDSNOTE_SESSION_FILE);
+}
+
+function saveKidsNoteSession(childId, cookie) {
+  const sessions = readKidsNoteSessions();
+  const now = Date.now();
+  for (const [key, session] of Object.entries(sessions)) {
+    if (!session?.expiresAt || session.expiresAt <= now) delete sessions[key];
+  }
+  const token = crypto.randomBytes(32).toString('base64url');
+  sessions[token] = {
+    childId: String(childId),
+    encryptedCookie: encryptKidsNoteCookie(cookie),
+    createdAt: now,
+    expiresAt: now + KIDSNOTE_SESSION_TTL_MS
+  };
+  writeKidsNoteSessions(sessions);
+  return token;
+}
+
+function getSavedKidsNoteSession(req) {
+  const token = parseRequestCookies(req)[KIDSNOTE_SESSION_COOKIE];
+  if (!token) return null;
+  const sessions = readKidsNoteSessions();
+  const session = sessions[token];
+  if (!session || session.expiresAt <= Date.now()) {
+    if (session) {
+      delete sessions[token];
+      writeKidsNoteSessions(sessions);
+    }
+    return null;
+  }
+  try {
+    return { token, childId: session.childId, cookie: decryptKidsNoteCookie(session.encryptedCookie), expiresAt: session.expiresAt };
+  } catch (error) {
+    console.error('Failed to decrypt KidsNote session:', error.message);
+    return null;
+  }
+}
+
+function clearSavedKidsNoteSession(req, res) {
+  const token = parseRequestCookies(req)[KIDSNOTE_SESSION_COOKIE];
+  if (token) {
+    const sessions = readKidsNoteSessions();
+    delete sessions[token];
+    writeKidsNoteSessions(sessions);
+  }
+  res.setHeader('Set-Cookie', `${KIDSNOTE_SESSION_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`);
+}
+
 function formatKidsNoteReport(report, index) {
   if (!report || typeof report !== 'object') return null;
   const content = stripHtml(report.content || report.body || report.text || report.description);
@@ -424,7 +596,7 @@ function formatKidsNoteReport(report, index) {
   };
 }
 
-async function fetchKidsNoteReports(childId, cookie) {
+async function fetchKidsNoteReports(childId, cookie, options = {}) {
   if (!/^\d+$/.test(String(childId || ''))) {
     const error = new Error('자녀 ID는 숫자만 입력할 수 있습니다.');
     error.status = 400;
@@ -438,7 +610,8 @@ async function fetchKidsNoteReports(childId, cookie) {
 
   const reports = [];
   let nextUrl = `https://www.kidsnote.com/api/v1_2/children/${childId}/reports/?page_size=100`;
-  for (let page = 0; nextUrl && page < 20; page++) {
+  const maxPages = Math.max(1, Math.min(20, Number(options.maxPages) || 20));
+  for (let page = 0; nextUrl && page < maxPages; page++) {
     const url = new URL(nextUrl, 'https://www.kidsnote.com');
     if (url.protocol !== 'https:' || url.hostname !== 'www.kidsnote.com' || !url.pathname.startsWith('/api/v1_2/children/')) {
       throw new Error('키즈노트 응답의 다음 페이지 주소가 올바르지 않습니다.');
@@ -574,9 +747,16 @@ Return JSON only.`;
 app.post('/api/kidsnote/import', async (req, res) => {
   try {
     const { mode = 'json', childId, cookie, data, baseDate } = req.body || {};
-    const reports = mode === 'session'
-      ? await fetchKidsNoteReports(childId, cookie)
-      : getKidsNoteReports(data);
+    let reports;
+    if (mode === 'saved_session') {
+      const session = getSavedKidsNoteSession(req);
+      if (!session) return res.status(401).json({ error: '저장된 키즈노트 로그인이 없거나 만료되었습니다.' });
+      reports = await fetchKidsNoteReports(session.childId, session.cookie);
+    } else if (mode === 'session') {
+      reports = await fetchKidsNoteReports(childId, cookie);
+    } else {
+      reports = getKidsNoteReports(data);
+    }
     if (!reports.length) return res.status(400).json({ error: '분석할 키즈노트 알림장 데이터가 없습니다.' });
     const result = await parseKidsNoteReports(reports, baseDate || new Date().toISOString());
     res.json(result);
@@ -584,6 +764,38 @@ app.post('/api/kidsnote/import', async (req, res) => {
     console.error('KidsNote import error:', err.message);
     res.status(err.status || 500).json({ error: err.message || '키즈노트 데이터를 처리하지 못했습니다.' });
   }
+});
+
+app.get('/api/kidsnote/session', (req, res) => {
+  const session = getSavedKidsNoteSession(req);
+  res.json(session
+    ? { connected: true, childId: session.childId, expiresAt: new Date(session.expiresAt).toISOString() }
+    : { connected: false });
+});
+
+app.post('/api/kidsnote/login', async (req, res) => {
+  const { username, password, childId } = req.body || {};
+  if (!username || typeof username !== 'string' || username.length > 100 ||
+      !password || typeof password !== 'string' || password.length > 200 ||
+      !/^\d+$/.test(String(childId || ''))) {
+    return res.status(400).json({ error: '키즈노트 아이디, 비밀번호, 자녀 ID를 확인해 주세요.' });
+  }
+  try {
+    const cookie = await loginToKidsNote(username.trim(), password);
+    await fetchKidsNoteReports(String(childId), cookie, { maxPages: 1 });
+    const token = saveKidsNoteSession(String(childId), cookie);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Set-Cookie', `${KIDSNOTE_SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(KIDSNOTE_SESSION_TTL_MS / 1000)}`);
+    res.json({ connected: true, childId: String(childId), expiresAt: new Date(Date.now() + KIDSNOTE_SESSION_TTL_MS).toISOString() });
+  } catch (error) {
+    console.error('KidsNote login error:', error.message);
+    res.status(error.status || 502).json({ error: error.message || '키즈노트 로그인에 실패했습니다.' });
+  }
+});
+
+app.delete('/api/kidsnote/session', (req, res) => {
+  clearSavedKidsNoteSession(req, res);
+  res.json({ connected: false });
 });
 
 // Chat Parsing Route using remote/local LLM Server (llama-server) with Smart Chunking

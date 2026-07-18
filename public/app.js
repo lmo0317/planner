@@ -94,7 +94,13 @@ const kidsNoteFileInput = document.getElementById('kidsnote-file-input');
 const kidsNoteFilePreview = document.getElementById('kidsnote-file-preview');
 const kidsNoteFilename = document.getElementById('kidsnote-filename');
 const kidsNoteChildId = document.getElementById('kidsnote-child-id');
-const kidsNoteCookie = document.getElementById('kidsnote-cookie');
+const kidsNoteUsername = document.getElementById('kidsnote-username');
+const kidsNotePassword = document.getElementById('kidsnote-password');
+const kidsNoteLoginForm = document.getElementById('kidsnote-login-form');
+const btnKidsNoteLogin = document.getElementById('btn-kidsnote-login');
+const btnKidsNoteLogout = document.getElementById('btn-kidsnote-logout');
+const kidsNoteConnectionStatus = document.getElementById('kidsnote-connection-status');
+const kidsNoteConnectionText = document.getElementById('kidsnote-connection-text');
 const kidsNoteLoading = document.getElementById('kidsnote-loading');
 const kidsNotePreview = document.getElementById('kidsnote-preview');
 const kidsNoteList = document.getElementById('kidsnote-list');
@@ -110,6 +116,7 @@ let aiScheduleEventsState = [];
 let kidsNoteMode = 'json';
 let kidsNoteJsonData = null;
 let kidsNoteEventsState = [];
+let kidsNoteSessionConnected = false;
 
 // Initialize application
 document.addEventListener('DOMContentLoaded', () => {
@@ -1319,6 +1326,8 @@ function setupKidsNoteEventListeners() {
   btnAnalyzeKidsNote.addEventListener('click', analyzeKidsNote);
   btnSaveKidsNote.addEventListener('click', saveKidsNoteSchedules);
   btnKidsNoteBack.addEventListener('click', showKidsNoteInput);
+  btnKidsNoteLogin.addEventListener('click', loginKidsNoteAccount);
+  btnKidsNoteLogout.addEventListener('click', logoutKidsNoteAccount);
   window.addEventListener('click', event => {
     if (event.target === kidsNoteModal) closeKidsNote();
   });
@@ -1328,7 +1337,8 @@ function setupKidsNoteEventListeners() {
       kidsNoteMode = button.dataset.kidsnoteMode;
       document.querySelectorAll('#kidsnote-tabs [data-kidsnote-mode]').forEach(item => item.classList.toggle('active', item === button));
       kidsNoteJsonPanel.classList.toggle('hidden', kidsNoteMode !== 'json');
-      kidsNoteSessionPanel.classList.toggle('hidden', kidsNoteMode !== 'session');
+      kidsNoteSessionPanel.classList.toggle('hidden', kidsNoteMode !== 'saved_session');
+      if (kidsNoteMode === 'saved_session') refreshKidsNoteSession();
     });
   });
 
@@ -1350,7 +1360,7 @@ function setupKidsNoteEventListeners() {
 
 function closeKidsNote() {
   kidsNoteModal.classList.remove('open');
-  kidsNoteCookie.value = '';
+  kidsNotePassword.value = '';
 }
 
 function resetKidsNoteModal() {
@@ -1361,11 +1371,79 @@ function resetKidsNoteModal() {
   kidsNoteFilePreview.classList.add('hidden');
   kidsNoteFilename.textContent = '';
   kidsNoteChildId.value = '';
-  kidsNoteCookie.value = '';
+  kidsNoteUsername.value = '';
+  kidsNotePassword.value = '';
+  kidsNoteSessionConnected = false;
+  renderKidsNoteConnection();
   kidsNoteJsonPanel.classList.remove('hidden');
   kidsNoteSessionPanel.classList.add('hidden');
   document.querySelectorAll('#kidsnote-tabs [data-kidsnote-mode]').forEach(button => button.classList.toggle('active', button.dataset.kidsnoteMode === 'json'));
   showKidsNoteInput();
+  refreshKidsNoteSession();
+}
+
+function renderKidsNoteConnection(session = null) {
+  kidsNoteLoginForm.classList.toggle('hidden', kidsNoteSessionConnected);
+  kidsNoteConnectionStatus.classList.toggle('hidden', !kidsNoteSessionConnected);
+  if (kidsNoteSessionConnected && session) {
+    const expires = session.expiresAt ? new Date(session.expiresAt).toLocaleDateString('ko-KR') : '';
+    kidsNoteConnectionText.textContent = `자녀 ID ${session.childId} 연결됨${expires ? ` · ${expires}까지` : ''}`;
+  } else if (!kidsNoteSessionConnected) {
+    kidsNoteConnectionText.textContent = '';
+  }
+}
+
+async function refreshKidsNoteSession() {
+  try {
+    const response = await fetch('/api/kidsnote/session', { cache: 'no-store' });
+    const session = await response.json();
+    kidsNoteSessionConnected = response.ok && session.connected === true;
+    renderKidsNoteConnection(session);
+  } catch {
+    kidsNoteSessionConnected = false;
+    renderKidsNoteConnection();
+  }
+}
+
+async function loginKidsNoteAccount() {
+  const username = kidsNoteUsername.value.trim();
+  const password = kidsNotePassword.value;
+  const childId = kidsNoteChildId.value.trim();
+  if (!username || !password || !/^\d+$/.test(childId)) {
+    showToast('키즈노트 아이디, 비밀번호, 숫자로 된 자녀 ID를 입력해 주세요.', 'danger');
+    return;
+  }
+  btnKidsNoteLogin.disabled = true;
+  try {
+    const response = await fetch('/api/kidsnote/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, childId })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || '키즈노트 로그인에 실패했습니다.');
+    kidsNotePassword.value = '';
+    kidsNoteSessionConnected = true;
+    renderKidsNoteConnection(result);
+    showToast('키즈노트 로그인 세션을 안전하게 저장했습니다.', 'success');
+  } catch (error) {
+    kidsNotePassword.value = '';
+    showToast(error.message, 'danger');
+  } finally {
+    btnKidsNoteLogin.disabled = false;
+  }
+}
+
+async function logoutKidsNoteAccount() {
+  btnKidsNoteLogout.disabled = true;
+  try {
+    await fetch('/api/kidsnote/session', { method: 'DELETE' });
+    kidsNoteSessionConnected = false;
+    renderKidsNoteConnection();
+    showToast('저장된 키즈노트 연결을 해제했습니다.', 'success');
+  } finally {
+    btnKidsNoteLogout.disabled = false;
+  }
 }
 
 function showKidsNoteInput() {
@@ -1416,10 +1494,9 @@ async function analyzeKidsNote() {
     }
     payload.data = kidsNoteJsonData;
   } else {
-    payload.childId = kidsNoteChildId.value.trim();
-    payload.cookie = kidsNoteCookie.value.trim();
-    if (!payload.childId || !payload.cookie) {
-      showToast('자녀 ID와 로그인 Cookie를 모두 입력해 주세요.', 'danger');
+    payload.mode = 'saved_session';
+    if (!kidsNoteSessionConnected) {
+      showToast('먼저 키즈노트 계정으로 로그인해 주세요.', 'danger');
       return;
     }
   }
@@ -1436,7 +1513,6 @@ async function analyzeKidsNote() {
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || '키즈노트 데이터를 분석하지 못했습니다.');
-    kidsNoteCookie.value = '';
     kidsNoteEventsState = Array.isArray(result.events) ? result.events : [];
     kidsNoteLoading.classList.add('hidden');
     kidsNotePreview.classList.remove('hidden');
@@ -1445,7 +1521,6 @@ async function analyzeKidsNote() {
     renderKidsNoteCandidates();
     btnSaveKidsNote.classList.toggle('hidden', kidsNoteEventsState.length === 0);
   } catch (error) {
-    kidsNoteCookie.value = '';
     kidsNoteLoading.classList.add('hidden');
     kidsNoteInputPanel.classList.remove('hidden');
     btnAnalyzeKidsNote.disabled = false;

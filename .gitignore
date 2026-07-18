@@ -1,10 +1,11 @@
 node_modules/
 .env
 data/db.json
+data/kidsnote-sessions.json
+data/kidsnote-sessions.json.tmp
 __pycache__/
 *.py[cod]
 *.log
 backups/
 .DS_Store
 Thumbs.db
-
