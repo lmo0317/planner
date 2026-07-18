@@ -663,8 +663,8 @@ function formatKidsNoteReport(report, index) {
     sourceId,
     writtenAt,
     title,
-    content: content.slice(0, 12000),
-    text: `[KIDSNOTE_REPORT id=${sourceId} written_at=${writtenAt || 'unknown'}]\n제목: ${title}\n내용: ${content.slice(0, 12000)}`
+    content: content.slice(0, 5000),
+    text: `[KIDSNOTE_REPORT id=${sourceId} written_at=${writtenAt || 'unknown'}]\n제목: ${title}\n내용: ${content.slice(0, 5000)}`
   };
 }
 
@@ -734,7 +734,7 @@ async function fetchKidsNoteReports(childId, cookie, options = {}) {
   return reports;
 }
 
-function chunkKidsNoteReports(reports, maxChars = 9000, maxChunks = 12) {
+function chunkKidsNoteReports(reports, maxChars = 4500, maxChunks = 16) {
   const chunks = [];
   let current = '';
   for (const report of reports) {
@@ -798,23 +798,32 @@ RULES:
 Return JSON only.`;
 
   const rawEvents = [];
+  let failedChunks = 0;
   for (const chunk of chunks) {
-    const response = await fetch(`${LLM_BASE_URL}/v1/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: LLM_MODEL,
-        messages: [{ role: 'system', content: prompt }, { role: 'user', content: chunk }],
-        temperature: 0,
-        max_tokens: 2200,
-        response_format: { type: 'json_schema', json_schema: { name: 'kidsnote_schedule_events', strict: true, schema } }
-      })
-    });
-    if (!response.ok) throw new Error(`AI 일정 분석에 실패했습니다. (${response.status})`);
-    const data = await response.json();
-    const parsed = JSON.parse(data.choices[0].message.content.trim());
-    rawEvents.push(...(parsed.events || []));
+    try {
+      const response = await fetch(`${LLM_BASE_URL}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: LLM_MODEL,
+          messages: [{ role: 'system', content: prompt }, { role: 'user', content: chunk }],
+          temperature: 0,
+          max_tokens: 4096,
+          response_format: { type: 'json_schema', json_schema: { name: 'kidsnote_schedule_events', strict: true, schema } }
+        })
+      });
+      if (!response.ok) throw new Error(`AI 응답 오류 ${response.status}`);
+      const data = await response.json();
+      const content = String(data.choices?.[0]?.message?.content || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+      const parsed = JSON.parse(content);
+      rawEvents.push(...(parsed.events || []));
+    } catch (error) {
+      failedChunks++;
+      console.warn(`KidsNote AI chunk failed (${failedChunks}/${chunks.length}):`, error.message);
+    }
   }
+
+  if (failedChunks === chunks.length) throw new Error('AI가 키즈노트 일정 결과를 완성하지 못했습니다. 다시 시도해 주세요.');
 
   const events = deduplicateEvents(rawEvents
     .map(event => {
