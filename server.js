@@ -383,14 +383,29 @@ function normalizeExtractedEvent(event, baseDate, options = {}) {
 }
 
 function deduplicateEvents(events) {
-  const unique = new Map();
+  const unique = [];
   for (const event of events) {
     const normalizedTitle = event.title.toLowerCase().replace(/\s+/g, '').replace(/[^\p{L}\p{N}]/gu, '');
-    const key = `${event.startDate.slice(0, 16)}|${normalizedTitle}`;
-    const existing = unique.get(key);
-    if (!existing || event.confidence > existing.confidence) unique.set(key, event);
+    const startDay = event.startDate.slice(0, 10);
+    const duplicateIndex = unique.findIndex(existing => {
+      if (existing.startDate.slice(0, 10) !== startDay) return false;
+      const existingTitle = existing.title.toLowerCase().replace(/\s+/g, '').replace(/[^\p{L}\p{N}]/gu, '');
+      if (existingTitle === normalizedTitle) return true;
+      const shorterLength = Math.min(existingTitle.length, normalizedTitle.length);
+      return shorterLength >= 3 &&
+        (existingTitle.includes(normalizedTitle) || normalizedTitle.includes(existingTitle));
+    });
+    if (duplicateIndex === -1) {
+      unique.push(event);
+      continue;
+    }
+    const existing = unique[duplicateIndex];
+    if (event.confidence > existing.confidence ||
+        (event.confidence === existing.confidence && event.content.length > existing.content.length)) {
+      unique[duplicateIndex] = event;
+    }
   }
-  return Array.from(unique.values()).sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
+  return unique.sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
 }
 
 function stripHtml(value) {
