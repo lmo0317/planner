@@ -720,7 +720,7 @@ async function fetchKidsNoteReports(childId, cookie, options = {}) {
       if (!nextValue.includes('/children/')) {
         const cursorSource = new URL(nextValue, reportsEndpoint);
         const cursor = cursorSource.pathname.replace(/^\/+/, '');
-        if (!cursor || cursor.includes('/')) throw new Error('키즈노트 다음 페이지 커서가 올바르지 않습니다.');
+        if (!cursor) throw new Error('키즈노트 다음 페이지 커서가 올바르지 않습니다.');
         const cursorUrl = new URL(reportsEndpoint);
         cursorUrl.searchParams.set('cursor', cursor);
         nextUrl = cursorUrl.toString();
