@@ -723,12 +723,49 @@ function formatKidsNoteReport(report, index) {
   const writtenAt = String(report.date_written || report.created_at || report.created || report.date || '').trim();
   const title = stripHtml(report.title || report.subject || report.name || '알림장');
   const sourceId = String(report.id || report.uuid || index + 1);
+  const dateHints = buildNaturalDateHints(content, writtenAt);
   return {
     sourceId,
     writtenAt,
     title,
     content: content.slice(0, 5000),
-    text: `[KIDSNOTE_REPORT id=${sourceId} written_at=${writtenAt || 'unknown'}]\n제목: ${title}\n내용: ${content.slice(0, 5000)}`
+    text: `[KIDSNOTE_REPORT id=${sourceId} written_at=${writtenAt || 'unknown'}]\n제목: ${title}\n내용: ${content.slice(0, 5000)}${dateHints ? `\n${dateHints}` : ''}`
+  };
+}
+
+function correctKidsNoteRelativeDate(event, reportsById) {
+  const report = reportsById.get(String(event?.sourceId || ''));
+  const writtenDateMatch = String(report?.writtenAt || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!event || !writtenDateMatch) return event;
+
+  const reason = `${event.dateReason || ''}\n${event.evidence || ''}`;
+  const relativeMatch = reason.match(/글피|모레|내일|오늘/);
+  if (!relativeMatch) return event;
+  const dayOffsets = { 오늘: 0, 내일: 1, 모레: 2, 글피: 3 };
+  const anchor = new Date(Date.UTC(
+    Number(writtenDateMatch[1]), Number(writtenDateMatch[2]) - 1, Number(writtenDateMatch[3])
+  ));
+  const resolvedDate = formatUtcCalendarDate(addCalendarDays(anchor, dayOffsets[relativeMatch[0]]));
+  const startDateMatch = String(event.startDate || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!startDateMatch) return event;
+
+  const emittedStart = new Date(Date.UTC(
+    Number(startDateMatch[1]), Number(startDateMatch[2]) - 1, Number(startDateMatch[3])
+  ));
+  const resolvedStart = new Date(`${resolvedDate}T00:00:00Z`);
+  const shiftDays = Math.round((resolvedStart.getTime() - emittedStart.getTime()) / (24 * 60 * 60 * 1000));
+  const shiftDatePart = value => {
+    const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})(.*)$/);
+    if (!match) return value;
+    const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+    return `${formatUtcCalendarDate(addCalendarDays(date, shiftDays))}${match[4]}`;
+  };
+
+  return {
+    ...event,
+    startDate: shiftDatePart(event.startDate),
+    endDate: shiftDatePart(event.endDate),
+    dateReason: `${String(event.dateReason || '').trim()} (공지 작성일 ${report.writtenAt} 기준 ${relativeMatch[0]}=${resolvedDate})`.trim()
   };
 }
 
@@ -855,6 +892,7 @@ async function parseKidsNoteReports(reports, referenceDate, options = {}) {
     .slice(0, 40);
   const chunks = chunkKidsNoteReports(formatted);
   if (!chunks.length) return { events: [], reportCount: reports.length, analyzedCount: 0 };
+  const reportsById = new Map(formatted.map(report => [String(report.sourceId), report]));
   const analyzedCount = chunks.reduce((count, chunk) => count + (chunk.match(/\[KIDSNOTE_REPORT\b/g) || []).length, 0);
 
   const schema = {
@@ -895,6 +933,7 @@ RULES:
 10. category is study for school/class/assignment, personal for health/family, otherwise general. Deadlines are normally high priority.
 11. dateReason must explain in Korean which notice expression produced the date. evidence must quote a short relevant Korean excerpt. Copy the enclosing KIDSNOTE_REPORT id into sourceId.
 12. confidence is 0 to 1; use below 0.65 when ambiguous.
+13. DATE_HINT is calculated deterministically from that report's written_at and is authoritative. Copy its resolved date exactly for the matching relative expression.
 
 Return JSON only.`;
 
@@ -920,7 +959,7 @@ Return JSON only.`;
       const data = await response.json();
       const content = String(data.choices?.[0]?.message?.content || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
       const parsed = JSON.parse(content);
-      rawEvents.push(...(parsed.events || []));
+      rawEvents.push(...(parsed.events || []).map(event => correctKidsNoteRelativeDate(event, reportsById)));
     } catch (error) {
       failedChunks++;
       console.warn(`KidsNote AI chunk failed (${failedChunks}/${chunks.length}):`, error.message);
