@@ -87,12 +87,7 @@ const btnAnalyzeKidsNote = document.getElementById('btn-analyze-kidsnote');
 const btnSaveKidsNote = document.getElementById('btn-save-kidsnote');
 const btnKidsNoteBack = document.getElementById('btn-kidsnote-back');
 const kidsNoteInputPanel = document.getElementById('kidsnote-input-panel');
-const kidsNoteJsonPanel = document.getElementById('kidsnote-json-panel');
 const kidsNoteSessionPanel = document.getElementById('kidsnote-session-panel');
-const kidsNoteDropZone = document.getElementById('kidsnote-drop-zone');
-const kidsNoteFileInput = document.getElementById('kidsnote-file-input');
-const kidsNoteFilePreview = document.getElementById('kidsnote-file-preview');
-const kidsNoteFilename = document.getElementById('kidsnote-filename');
 const kidsNoteUsername = document.getElementById('kidsnote-username');
 const kidsNotePassword = document.getElementById('kidsnote-password');
 const kidsNoteLoginForm = document.getElementById('kidsnote-login-form');
@@ -112,8 +107,6 @@ let extractedEventsState = [];
 let extractedChatText = '';
 let activeImportTab = 'tab-file';
 let aiScheduleEventsState = [];
-let kidsNoteMode = 'json';
-let kidsNoteJsonData = null;
 let kidsNoteEventsState = [];
 let kidsNoteSessionConnected = false;
 let kidsNoteSavedEventKeys = new Set();
@@ -1332,30 +1325,6 @@ function setupKidsNoteEventListeners() {
     if (event.target === kidsNoteModal) closeKidsNote();
   });
 
-  document.querySelectorAll('#kidsnote-tabs [data-kidsnote-mode]').forEach(button => {
-    button.addEventListener('click', () => {
-      kidsNoteMode = button.dataset.kidsnoteMode;
-      document.querySelectorAll('#kidsnote-tabs [data-kidsnote-mode]').forEach(item => item.classList.toggle('active', item === button));
-      kidsNoteJsonPanel.classList.toggle('hidden', kidsNoteMode !== 'json');
-      kidsNoteSessionPanel.classList.toggle('hidden', kidsNoteMode !== 'saved_session');
-      if (kidsNoteMode === 'saved_session') refreshKidsNoteSession();
-    });
-  });
-
-  kidsNoteDropZone.addEventListener('click', () => kidsNoteFileInput.click());
-  kidsNoteFileInput.addEventListener('change', event => {
-    if (event.target.files[0]) readKidsNoteFile(event.target.files[0]);
-  });
-  kidsNoteDropZone.addEventListener('dragover', event => {
-    event.preventDefault();
-    kidsNoteDropZone.classList.add('dragover');
-  });
-  kidsNoteDropZone.addEventListener('dragleave', () => kidsNoteDropZone.classList.remove('dragover'));
-  kidsNoteDropZone.addEventListener('drop', event => {
-    event.preventDefault();
-    kidsNoteDropZone.classList.remove('dragover');
-    if (event.dataTransfer.files[0]) readKidsNoteFile(event.dataTransfer.files[0]);
-  });
 }
 
 function closeKidsNote() {
@@ -1364,20 +1333,13 @@ function closeKidsNote() {
 }
 
 function resetKidsNoteModal() {
-  kidsNoteMode = 'json';
-  kidsNoteJsonData = null;
   kidsNoteEventsState = [];
   kidsNoteSavedEventKeys = new Set();
-  kidsNoteFileInput.value = '';
-  kidsNoteFilePreview.classList.add('hidden');
-  kidsNoteFilename.textContent = '';
   kidsNoteUsername.value = '';
   kidsNotePassword.value = '';
   kidsNoteSessionConnected = false;
   renderKidsNoteConnection();
-  kidsNoteJsonPanel.classList.remove('hidden');
-  kidsNoteSessionPanel.classList.add('hidden');
-  document.querySelectorAll('#kidsnote-tabs [data-kidsnote-mode]').forEach(button => button.classList.toggle('active', button.dataset.kidsnoteMode === 'json'));
+  kidsNoteSessionPanel.classList.remove('hidden');
   showKidsNoteInput();
   refreshKidsNoteSession();
 }
@@ -1458,46 +1420,11 @@ function showKidsNoteInput() {
   btnSaveKidsNote.disabled = false;
 }
 
-function readKidsNoteFile(file) {
-  if (!file.name.toLowerCase().endsWith('.json')) {
-    showToast('키즈노트 JSON 파일을 선택해 주세요.', 'danger');
-    return;
-  }
-  if (file.size > 10 * 1024 * 1024) {
-    showToast('JSON 파일은 10MB 이하만 분석할 수 있습니다.', 'danger');
-    return;
-  }
-  const reader = new FileReader();
-  reader.onload = () => {
-    try {
-      kidsNoteJsonData = JSON.parse(reader.result);
-      kidsNoteFilename.textContent = file.name;
-      kidsNoteFilePreview.classList.remove('hidden');
-      showToast('키즈노트 JSON을 불러왔습니다.', 'success');
-    } catch {
-      kidsNoteJsonData = null;
-      kidsNoteFilePreview.classList.add('hidden');
-      showToast('올바른 JSON 파일이 아닙니다.', 'danger');
-    }
-  };
-  reader.onerror = () => showToast('파일을 읽지 못했습니다.', 'danger');
-  reader.readAsText(file);
-}
-
 async function analyzeKidsNote() {
-  const payload = { mode: kidsNoteMode, baseDate: formatLocalIsoWithOffset() };
-  if (kidsNoteMode === 'json') {
-    if (!kidsNoteJsonData) {
-      showToast('분석할 키즈노트 JSON 파일을 선택해 주세요.', 'danger');
-      return;
-    }
-    payload.data = kidsNoteJsonData;
-  } else {
-    payload.mode = 'saved_session';
-    if (!kidsNoteSessionConnected) {
-      showToast('먼저 키즈노트 계정으로 로그인해 주세요.', 'danger');
-      return;
-    }
+  const payload = { mode: 'saved_session', baseDate: formatLocalIsoWithOffset() };
+  if (!kidsNoteSessionConnected) {
+    showToast('먼저 키즈노트 계정으로 로그인해 주세요.', 'danger');
+    return;
   }
 
   kidsNoteInputPanel.classList.add('hidden');
@@ -1505,8 +1432,7 @@ async function analyzeKidsNote() {
   kidsNoteLoading.classList.remove('hidden');
   btnAnalyzeKidsNote.disabled = true;
   try {
-    const result = kidsNoteMode === 'saved_session'
-      ? await runKidsNoteBackgroundAnalysis(payload, partial => {
+    const result = await runKidsNoteBackgroundAnalysis(payload, partial => {
         kidsNoteEventsState = Array.isArray(partial.events) ? partial.events : [];
         kidsNoteLoading.classList.add('hidden');
         kidsNotePreview.classList.remove('hidden');
@@ -1516,8 +1442,7 @@ async function analyzeKidsNote() {
         const total = partial.totalChunks || 0;
         kidsNoteSummary.textContent = `분석 중 ${completed}/${total} · 알림장 ${partial.analyzedCount || 0}건 확인 · 일정 후보 ${kidsNoteEventsState.length}건`;
         renderKidsNoteCandidates();
-      })
-      : await runKidsNoteDirectAnalysis(payload);
+      });
     kidsNoteEventsState = Array.isArray(result.events) ? result.events : [];
     kidsNoteLoading.classList.add('hidden');
     kidsNotePreview.classList.remove('hidden');

@@ -11,7 +11,7 @@
   <!-- Lucide Icons CDN -->
   <script src="https://unpkg.com/lucide@latest"></script>
   <!-- Tailwind/Vanilla CSS (Vanilla CSS will be structured in style.css) -->
-  <link rel="stylesheet" href="style.css?v=20260718-10">
+  <link rel="stylesheet" href="style.css?v=20260718-11">
 </head>
 <body class="dark-theme">
   <div class="glow-bg">
@@ -324,23 +324,7 @@
       <p class="ai-schedule-guide">알림장 본문에서 행사·마감·준비물 일정을 찾아 등록 후보로 만듭니다.</p>
 
       <div id="kidsnote-input-panel">
-        <div class="modal-tabs" id="kidsnote-tabs">
-          <button type="button" class="tab-btn active" data-kidsnote-mode="json">JSON 파일</button>
-          <button type="button" class="tab-btn" data-kidsnote-mode="saved_session">계정 로그인</button>
-        </div>
-
-        <div id="kidsnote-json-panel">
-          <div class="drop-zone" id="kidsnote-drop-zone">
-            <i data-lucide="file-json" class="kidsnote-drop-icon"></i>
-            <p>키즈노트 API에서 저장한 JSON 파일을 선택하거나 끌어 놓으세요.</p>
-            <input type="file" id="kidsnote-file-input" accept=".json,application/json" hidden>
-          </div>
-          <div id="kidsnote-file-preview" class="file-name-preview hidden">
-            <i data-lucide="file-check"></i> <span id="kidsnote-filename"></span>
-          </div>
-        </div>
-
-        <div id="kidsnote-session-panel" class="hidden">
+        <div id="kidsnote-session-panel">
           <div class="kidsnote-security-note">
             <i data-lucide="shield-check"></i>
             <span>비밀번호는 저장하지 않고, 키즈노트 로그인 세션만 서버에 암호화해 저장합니다. 현재 HTTP 내부망에서는 테스트 용도로만 사용하세요.</span>
@@ -449,6 +433,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20260718-10"></script>
+  <script src="app.js?v=20260718-11"></script>
 </body>
 </html>
