@@ -685,7 +685,11 @@ async function fetchKidsNoteReports(childId, cookie, options = {}) {
   const maxPages = Math.max(1, Math.min(20, Number(options.maxPages) || 20));
   for (let page = 0; nextUrl && page < maxPages; page++) {
     const url = new URL(nextUrl, 'https://www.kidsnote.com');
-    if (url.protocol !== 'https:' || url.hostname !== 'www.kidsnote.com' || !url.pathname.startsWith('/api/v1_2/children/')) {
+    const allowedHosts = new Set(['www.kidsnote.com', 'kapi.kidsnote.com']);
+    if (url.protocol === 'http:' && allowedHosts.has(url.hostname)) url.protocol = 'https:';
+    const expectedReportsPath = new RegExp(`/children/${String(childId)}/reports(?:/|$)`);
+    if (url.protocol !== 'https:' || !allowedHosts.has(url.hostname) || !expectedReportsPath.test(url.pathname)) {
+      console.error('Rejected KidsNote pagination URL:', url.origin, url.pathname);
       throw new Error('키즈노트 응답의 다음 페이지 주소가 올바르지 않습니다.');
     }
     const response = await fetch(url, {
