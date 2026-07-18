@@ -93,7 +93,6 @@ const kidsNoteDropZone = document.getElementById('kidsnote-drop-zone');
 const kidsNoteFileInput = document.getElementById('kidsnote-file-input');
 const kidsNoteFilePreview = document.getElementById('kidsnote-file-preview');
 const kidsNoteFilename = document.getElementById('kidsnote-filename');
-const kidsNoteChildId = document.getElementById('kidsnote-child-id');
 const kidsNoteUsername = document.getElementById('kidsnote-username');
 const kidsNotePassword = document.getElementById('kidsnote-password');
 const kidsNoteLoginForm = document.getElementById('kidsnote-login-form');
@@ -1370,7 +1369,6 @@ function resetKidsNoteModal() {
   kidsNoteFileInput.value = '';
   kidsNoteFilePreview.classList.add('hidden');
   kidsNoteFilename.textContent = '';
-  kidsNoteChildId.value = '';
   kidsNoteUsername.value = '';
   kidsNotePassword.value = '';
   kidsNoteSessionConnected = false;
@@ -1408,9 +1406,8 @@ async function refreshKidsNoteSession() {
 async function loginKidsNoteAccount() {
   const username = kidsNoteUsername.value.trim();
   const password = kidsNotePassword.value;
-  const childId = kidsNoteChildId.value.trim();
-  if (!username || !password || !/^\d+$/.test(childId)) {
-    showToast('키즈노트 아이디, 비밀번호, 숫자로 된 자녀 ID를 입력해 주세요.', 'danger');
+  if (!username || !password) {
+    showToast('키즈노트 아이디와 비밀번호를 입력해 주세요.', 'danger');
     return;
   }
   btnKidsNoteLogin.disabled = true;
@@ -1418,7 +1415,7 @@ async function loginKidsNoteAccount() {
     const response = await fetch('/api/kidsnote/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password, childId })
+      body: JSON.stringify({ username, password })
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || '키즈노트 로그인에 실패했습니다.');

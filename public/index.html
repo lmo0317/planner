@@ -358,22 +358,11 @@
               <label for="kidsnote-password">키즈노트 비밀번호</label>
               <input id="kidsnote-password" type="password" autocomplete="current-password" placeholder="키즈노트 비밀번호">
             </div>
-            <div class="form-group">
-              <label for="kidsnote-child-id">자녀 ID</label>
-              <input id="kidsnote-child-id" inputmode="numeric" autocomplete="off" placeholder="API 주소의 children/다음 숫자">
-            </div>
             <button type="button" id="btn-kidsnote-login" class="btn btn-primary kidsnote-login-button">
               <i data-lucide="log-in"></i> 로그인하고 세션 저장
             </button>
           </div>
-          <details class="kidsnote-help">
-            <summary>자녀 ID 찾는 방법</summary>
-            <ol>
-              <li>키즈노트 웹사이트에 직접 로그인합니다.</li>
-              <li>F12 → Network에서 아이 알림장 페이지를 엽니다.</li>
-              <li><code>/children/숫자/reports/</code> 요청에 표시된 숫자를 입력합니다.</li>
-            </ol>
-          </details>
+          <p class="kidsnote-login-help">로그인 후 자녀 정보와 알림장 접근 권한을 자동으로 확인합니다.</p>
         </div>
       </div>
 
