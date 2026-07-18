@@ -520,13 +520,16 @@ async function loginToKidsNoteBrowser(username, password) {
     await page.type('input[name="password"]', password);
     const loginOutcome = Promise.race([
       page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => null),
-      page.waitForFunction(() => Boolean(document.querySelector('input[aria-invalid="true"]')) ||
-        /아이디.*비밀번호|비밀번호.*확인|invalid/i.test(document.body.innerText), { timeout: 20000 }).catch(() => null)
+      page.waitForFunction(() => {
+        const loginPath = /^\/(?:[a-z]{2}\/)?login\/?$/.test(location.pathname);
+        const invalidInput = Boolean(document.querySelector('input[aria-invalid="true"]'));
+        return !loginPath || invalidInput;
+      }, { timeout: 20000 }).catch(() => null)
     ]);
     await page.click('button[type="submit"]');
     await loginOutcome;
 
-    if (/\/login(?:\?|$)/.test(page.url())) {
+    if (/\/(?:[a-z]{2}\/)?login(?:\/|\?|$)/.test(page.url())) {
       const error = new Error('키즈노트 아이디 또는 비밀번호가 올바르지 않거나 추가 인증이 필요합니다.');
       error.status = 401;
       throw error;
