@@ -42,11 +42,6 @@
         <span>AI 일정 추가</span>
       </button>
 
-      <button id="btn-import-chat" class="btn btn-secondary" style="margin-top: -12px;">
-        <i data-lucide="message-square-plus"></i>
-        <span>카톡 대화 분석</span>
-      </button>
-
       <button id="btn-import-kidsnote" class="btn btn-secondary" style="margin-top: -12px;">
         <i data-lucide="school"></i>
         <span>키즈노트 일정 가져오기</span>
@@ -247,72 +242,6 @@
           </div>
         </div>
       </form>
-    </div>
-  </div>
-
-  <!-- Chat Import Modal -->
-  <div id="import-modal" class="modal">
-    <div class="modal-content glass" style="width: 600px; max-height: 85vh; display: flex; flex-direction: column; padding: 24px;">
-      <span class="close-modal" id="close-import-modal"><i data-lucide="x"></i></span>
-      <h2 style="margin-bottom: 16px;">카카오톡 대화 분석 (AI)</h2>
-      
-      <!-- Input Mode Selection Tabs -->
-      <div class="modal-tabs">
-        <button type="button" class="tab-btn active" data-tab="tab-file">파일 업로드</button>
-        <button type="button" class="tab-btn" data-tab="tab-text">대화 직접 입력</button>
-      </div>
-
-      <!-- Tab Contents -->
-      <div class="tab-panels" style="flex-grow: 1; overflow-y: auto; margin-bottom: 16px;">
-        <!-- File Upload Panel -->
-        <div id="tab-file" class="tab-panel active">
-          <div class="drop-zone" id="chat-drop-zone">
-            <i data-lucide="file-text" style="width: 48px; height: 48px; color: var(--primary); margin-bottom: 12px;"></i>
-            <p>카카오톡 내보내기 대화 파일(.txt)을 이곳에 드래그하거나 클릭하여 업로드하세요.</p>
-            <input type="file" id="chat-file-input" accept=".txt" style="display: none;">
-          </div>
-          <div id="file-name-preview" class="file-name-preview hidden">
-            <i data-lucide="file-check"></i> <span id="uploaded-filename">chat.txt</span>
-          </div>
-        </div>
-
-        <!-- Text Paste Panel -->
-        <div id="tab-text" class="tab-panel">
-          <div class="form-group">
-            <label for="chat-text-area">대화 내용 붙여넣기</label>
-            <textarea id="chat-text-area" rows="8" placeholder="예:
-[철수] [오후 2:30] 내일 오후 3시에 회의 어때?
-[영희] [오후 2:31] 좋아 1시간 동안 진행하자!"></textarea>
-          </div>
-        </div>
-
-        <!-- Loading Screen -->
-        <div id="import-loading" class="import-state-panel hidden">
-          <div class="spinner"></div>
-          <p>AI가 대화 흐름을 분석하여 일정을 추출하고 있습니다...</p>
-        </div>
-
-        <!-- Preview Results Panel -->
-        <div id="import-preview" class="import-state-panel hidden">
-          <h3 style="font-size: 1rem; margin-bottom: 12px; font-family: 'Space Grotesk';">추출된 일정 목록 (<span id="extracted-count">0</span>)</h3>
-          <div id="extracted-schedules-list" class="extracted-list">
-            <!-- Dynamic schedule cards with checkboxes -->
-          </div>
-        </div>
-      </div>
-
-      <!-- Modal Action Footer -->
-      <div class="modal-footer" style="margin-top: auto; border-top: 1px solid var(--border-color); padding-top: 16px;">
-        <button type="button" id="btn-cancel-import" class="btn btn-secondary">닫기</button>
-        <div class="footer-right">
-          <button type="button" id="btn-process-import" class="btn btn-primary">
-            <i data-lucide="brain"></i> 분석하기
-          </button>
-          <button type="button" id="btn-save-imported" class="btn btn-success hidden">
-            <i data-lucide="save"></i> 일정 등록 (<span id="selected-import-count">0</span>)
-          </button>
-        </div>
-      </div>
     </div>
   </div>
 

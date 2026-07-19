@@ -12,12 +12,17 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const LLM_BASE_URL = (process.env.LLM_BASE_URL || 'http://localhost:8081').replace(/\/$/, '');
 const LLM_MODEL = process.env.LLM_MODEL || 'gemma-4-e4b-it-q4km';
+const LLM_TIMEOUT_MS = Math.max(5000, Number(process.env.LLM_TIMEOUT_MS) || 60000);
 const KIDSNOTE_SESSION_SECRET = process.env.KIDSNOTE_SESSION_SECRET || '';
 const KIDSNOTE_SESSION_COOKIE = 'planner_kidsnote_session';
 const KIDSNOTE_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const KIDSNOTE_SESSION_FILE = path.join(__dirname, 'data', 'kidsnote-sessions.json');
 const CHROMIUM_EXECUTABLE = process.env.CHROMIUM_EXECUTABLE || '/snap/bin/chromium';
+const PHOTO_BACKUP_DIR = path.join(__dirname, 'data', 'photo-backups');
+const PHOTO_FILES_DIR = path.join(PHOTO_BACKUP_DIR, 'files');
+const PHOTO_INDEX_FILE = path.join(PHOTO_BACKUP_DIR, 'photos.json');
 const kidsNoteAnalysisJobs = new Map();
+const photoBackupJobs = new Map();
 
 let koreanHolidayModulePromise;
 
@@ -37,7 +42,173 @@ app.use(express.urlencoded({ limit: '10mb', extended: true }));
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
 
+function ensurePhotoBackupStore() {
+  fs.mkdirSync(PHOTO_FILES_DIR, { recursive: true });
+  if (!fs.existsSync(PHOTO_INDEX_FILE)) {
+    fs.writeFileSync(PHOTO_INDEX_FILE, '[]\n', 'utf8');
+  }
+}
+
+function readPhotoIndex() {
+  try {
+    ensurePhotoBackupStore();
+    const photos = JSON.parse(fs.readFileSync(PHOTO_INDEX_FILE, 'utf8'));
+    return Array.isArray(photos) ? photos : [];
+  } catch (error) {
+    console.error('Failed to read photo backup index:', error.message);
+    return [];
+  }
+}
+
+function writePhotoIndex(photos) {
+  ensurePhotoBackupStore();
+  fs.writeFileSync(PHOTO_INDEX_FILE, `${JSON.stringify(photos, null, 2)}\n`, 'utf8');
+}
+
+function getPhotoById(id) {
+  const photos = readPhotoIndex();
+  return { photos, photo: photos.find(item => item.id === id) };
+}
+
+function sanitizePhotoName(value) {
+  const base = path.basename(String(value || 'photo')).replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').trim();
+  return base || 'photo';
+}
+
+function getImageExtension(contentType, sourceUrl = '') {
+  const type = String(contentType || '').toLowerCase();
+  if (type.includes('jpeg') || type.includes('jpg')) return '.jpg';
+  if (type.includes('png')) return '.png';
+  if (type.includes('webp')) return '.webp';
+  if (type.includes('gif')) return '.gif';
+  if (type.includes('heic')) return '.heic';
+  const ext = path.extname(new URL(sourceUrl).pathname).toLowerCase();
+  return /^\.(jpe?g|png|webp|gif|heic)$/.test(ext) ? ext : '.jpg';
+}
+
+function getPhotoSourceId(sourceUrl) {
+  return crypto.createHash('sha256').update(String(sourceUrl)).digest('hex');
+}
+
+function getExistingPhotoUrlSet(photos = readPhotoIndex()) {
+  return new Set(photos.map(photo => photo.sourceUrl).filter(Boolean));
+}
+
+function updateExistingPhotoMeta(sourceUrl, meta = {}) {
+  const photos = readPhotoIndex();
+  const index = photos.findIndex(photo => photo.sourceUrl === sourceUrl);
+  if (index === -1) return false;
+  const photo = photos[index];
+  photos[index] = {
+    ...photo,
+    takenAt: photo.takenAt || meta.sourceDate || '',
+    sourceTitle: photo.sourceTitle || meta.sourceTitle || '',
+    sourceType: photo.sourceType || meta.sourceType || '',
+    sourcePage: photo.sourcePage || meta.sourcePage || ''
+  };
+  writePhotoIndex(photos);
+  return true;
+}
+
+function updateExistingPhotoMetaBySourcePage(sourcePage, meta = {}) {
+  if (!sourcePage) return 0;
+  const photos = readPhotoIndex();
+  let changed = 0;
+  const updated = photos.map(photo => {
+    if (photo.sourcePage !== sourcePage) return photo;
+    const next = {
+      ...photo,
+      takenAt: photo.takenAt || meta.sourceDate || '',
+      sourceTitle: photo.sourceTitle || meta.sourceTitle || '',
+      sourceType: photo.sourceType || meta.sourceType || ''
+    };
+    if (JSON.stringify(next) !== JSON.stringify(photo)) changed++;
+    return next;
+  });
+  if (changed) writePhotoIndex(updated);
+  return changed;
+}
+
+function addBackedUpPhoto({ sourceUrl, buffer, mimeType, sourcePage, sourceType, sourceDate, sourceTitle }) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 8 * 1024) return null;
+  const photos = readPhotoIndex();
+  if (photos.some(photo => photo.sourceUrl === sourceUrl)) return null;
+
+  const id = getPhotoSourceId(sourceUrl);
+  const ext = getImageExtension(mimeType, sourceUrl);
+  const filename = `${id}${ext}`;
+  const filePath = path.join(PHOTO_FILES_DIR, filename);
+  if (!fs.existsSync(filePath)) fs.writeFileSync(filePath, buffer);
+
+  const urlPath = new URL(sourceUrl).pathname;
+  const originalName = sanitizePhotoName(path.basename(urlPath) || `${sourceType || 'kidsnote'}-${id.slice(0, 8)}${ext}`);
+  const photo = {
+    id,
+    originalName,
+    filename,
+    mimeType: mimeType || 'image/jpeg',
+    size: buffer.length,
+    uploadedAt: new Date().toISOString(),
+    takenAt: sourceDate || '',
+    sourceTitle: sourceTitle || '',
+    source: 'kidsnote',
+    sourceType,
+    sourcePage,
+    sourceUrl
+  };
+  writePhotoIndex([...photos, photo]);
+  return photo;
+}
+
 // API Routes
+app.get('/photo', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'photo.html'));
+});
+
+app.get('/api/photos', (req, res) => {
+  const sort = String(req.query.sort || 'sourceDateDesc');
+  const photos = readPhotoIndex()
+    .filter(photo => fs.existsSync(path.join(PHOTO_FILES_DIR, photo.filename)))
+    .sort((a, b) => {
+      const aTaken = String(a.takenAt || '');
+      const bTaken = String(b.takenAt || '');
+      if (sort === 'sourceDateAsc') {
+        if (aTaken && !bTaken) return -1;
+        if (!aTaken && bTaken) return 1;
+        return aTaken.localeCompare(bTaken) || String(a.uploadedAt).localeCompare(String(b.uploadedAt));
+      }
+      if (sort === 'uploadedDesc') return String(b.uploadedAt).localeCompare(String(a.uploadedAt));
+      if (sort === 'uploadedAsc') return String(a.uploadedAt).localeCompare(String(b.uploadedAt));
+      if (aTaken && !bTaken) return -1;
+      if (!aTaken && bTaken) return 1;
+      return bTaken.localeCompare(aTaken) || String(b.uploadedAt).localeCompare(String(a.uploadedAt));
+    });
+  const totalSize = photos.reduce((sum, photo) => sum + (Number(photo.size) || 0), 0);
+  res.json({ photos, totalCount: photos.length, totalSize });
+});
+
+app.get('/api/photos/:id/file', (req, res) => {
+  const { photo } = getPhotoById(req.params.id);
+  if (!photo) return res.status(404).json({ error: '사진을 찾을 수 없습니다.' });
+  const filePath = path.join(PHOTO_FILES_DIR, photo.filename);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: '사진 파일을 찾을 수 없습니다.' });
+  res.type(photo.mimeType || 'application/octet-stream');
+  if (req.query.download === '1') {
+    res.download(filePath, photo.originalName || photo.filename);
+  } else {
+    res.sendFile(filePath);
+  }
+});
+
+app.delete('/api/photos/:id', (req, res) => {
+  const { photos, photo } = getPhotoById(req.params.id);
+  if (!photo) return res.status(404).json({ error: '사진을 찾을 수 없습니다.' });
+  const filePath = path.join(PHOTO_FILES_DIR, photo.filename);
+  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  writePhotoIndex(photos.filter(item => item.id !== req.params.id));
+  res.json({ deleted: true });
+});
+
 app.get('/api/holidays', async (req, res) => {
   const year = Number.parseInt(req.query.year, 10);
 
@@ -132,61 +303,6 @@ const CATEGORY_COLORS = {
   general: '#ec4899'
 };
 
-const SCHEDULE_KEYWORD_REGEX = /(만나|보자|볼까|약속|회의|미팅|회식|식사|밥\s*먹|먹자|점심|저녁|예약|모임|가자|갈까|영화|공연|행사|결혼식|병원|치료|상담|수업|학원|시험|면접|출근|출발|방문|여행|마감|제출|발표|피티|pt|오픈클래스|하기로|하자|어때|될까|가능)/i;
-const TEMPORAL_EXPRESSION_REGEX = /(오늘|내일|모레|글피|이번\s*주|다음\s*주|다다음\s*주|월요일|화요일|수요일|목요일|금요일|토요일|일요일|오전|오후|아침|점심|저녁|\d{1,2}\s*[:시]\s*\d{0,2}|\d{1,2}\s*월|\d{1,2}\s*[\/.-]\s*\d{1,2})/i;
-
-// Keep schedule-related messages together with enough surrounding conversation
-// to distinguish proposals, confirmations, changes, and cancellations.
-function filterScheduleContext(rawText) {
-  if (!rawText) return '';
-  const lines = rawText.replace(/\r\n/g, '\n').split('\n');
-  const matchedIndices = new Set();
-  const messageBody = line => line.includes(' : ') ? line.split(' : ').slice(1).join(' : ') : line;
-
-  for (let i = 0; i < lines.length; i++) {
-    const nearby = lines
-      .slice(Math.max(0, i - 2), Math.min(lines.length, i + 3))
-      .map(messageBody)
-      .join(' ');
-    if (SCHEDULE_KEYWORD_REGEX.test(messageBody(lines[i])) && TEMPORAL_EXPRESSION_REGEX.test(nearby)) {
-      const start = Math.max(0, i - 2);
-      const end = Math.min(lines.length - 1, i + 3);
-      for (let j = start; j <= end; j++) {
-        matchedIndices.add(j);
-      }
-    }
-  }
-
-  const sortedIndices = Array.from(matchedIndices).sort((a, b) => a - b);
-  const filteredLines = [];
-  let previousIndex = -2;
-  for (const idx of sortedIndices) {
-    if (idx > previousIndex + 1) filteredLines.push('--- CONTEXT GAP ---');
-    filteredLines.push(lines[idx]);
-    previousIndex = idx;
-  }
-  return filteredLines.join('\n');
-}
-
-function splitScheduleContext(filteredText, maxChars = 4500) {
-  if (!filteredText.trim()) return [];
-  const groups = filteredText.split('\n--- CONTEXT GAP ---\n');
-  const chunks = [];
-  let current = '';
-
-  for (const group of groups) {
-    const candidate = current ? `${current}\n--- CONTEXT GAP ---\n${group}` : group;
-    if (candidate.length > maxChars && current) {
-      chunks.push(current);
-      current = group;
-    } else {
-      current = candidate;
-    }
-  }
-  if (current) chunks.push(current);
-  return chunks;
-}
-
 const KOREAN_WEEKDAYS = {
   '월요일': 0,
   '화요일': 1,
@@ -215,71 +331,6 @@ function formatEpochWithOffset(epochMs, offset) {
   return `${local.toISOString().slice(0, 19)}${offset}`;
 }
 
-// LLMs can explain weekday math correctly while still emitting the wrong date.
-// Resolve common relative Korean dates deterministically and provide authoritative hints.
-function annotateRelativeDates(text) {
-  const timestampRegex = /^(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일\s*(?:오전|오후)\s*\d{1,2}:\d{2},/;
-  let candidateNumber = 0;
-  return text.split('\n').map(line => {
-    const match = line.match(timestampRegex);
-    if (!match) {
-      return SCHEDULE_KEYWORD_REGEX.test(line) && TEMPORAL_EXPRESSION_REGEX.test(line)
-        ? `${line} [EVENT_CANDIDATE:${++candidateNumber}]`
-        : line;
-    }
-
-    const anchor = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
-    const hints = [];
-    const addHint = (expression, date) => {
-      const hint = `"${expression}"=${formatUtcCalendarDate(date)}`;
-      if (!hints.includes(hint)) hints.push(hint);
-    };
-
-    const relativeDays = [
-      ['오늘', 0],
-      ['내일', 1],
-      ['모레', 2],
-      ['글피', 3]
-    ];
-    for (const [expression, days] of relativeDays) {
-      if (line.includes(expression)) addHint(expression, addCalendarDays(anchor, days));
-    }
-
-    const mondayIndex = (anchor.getUTCDay() + 6) % 7;
-    const monday = addCalendarDays(anchor, -mondayIndex);
-    const qualifiedWeekdayRegex = /(이번\s*주|다음\s*주|다다음\s*주)\s*(월요일|화요일|수요일|목요일|금요일|토요일|일요일)/g;
-    for (const weekdayMatch of line.matchAll(qualifiedWeekdayRegex)) {
-      const weekOffset = weekdayMatch[1].replace(/\s/g, '') === '이번주' ? 0 :
-        weekdayMatch[1].replace(/\s/g, '') === '다음주' ? 7 : 14;
-      addHint(weekdayMatch[0], addCalendarDays(monday, weekOffset + KOREAN_WEEKDAYS[weekdayMatch[2]]));
-    }
-
-    // An unqualified weekday means the nearest occurrence on or after the message date.
-    if (!qualifiedWeekdayRegex.test(line)) {
-      for (const [weekday, targetIndex] of Object.entries(KOREAN_WEEKDAYS)) {
-        if (!line.includes(weekday)) continue;
-        const daysAhead = (targetIndex - mondayIndex + 7) % 7;
-        addHint(weekday, addCalendarDays(anchor, daysAhead));
-      }
-    }
-
-    const abbreviatedWeekdayRegex = /(?:^|[\s:])(월|화|수|목|금|토|일)(?=\s*(?:아침|오전|오후|저녁|\d))/g;
-    const abbreviatedWeekdays = { 월: 0, 화: 1, 수: 2, 목: 3, 금: 4, 토: 5, 일: 6 };
-    for (const abbreviatedMatch of line.matchAll(abbreviatedWeekdayRegex)) {
-      const targetIndex = abbreviatedWeekdays[abbreviatedMatch[1]];
-      const daysAhead = (targetIndex - mondayIndex + 7) % 7;
-      addHint(abbreviatedMatch[1], addCalendarDays(anchor, daysAhead));
-    }
-
-    let annotated = hints.length ? `${line} [DATE_HINT: ${hints.join(', ')}]` : line;
-    const messageBody = line.includes(' : ') ? line.split(' : ').slice(1).join(' : ') : line;
-    if (SCHEDULE_KEYWORD_REGEX.test(messageBody) && TEMPORAL_EXPRESSION_REGEX.test(messageBody)) {
-      annotated += ` [EVENT_CANDIDATE:${++candidateNumber}]`;
-    }
-    return annotated;
-  }).join('\n');
-}
-
 function buildNaturalDateHints(text, baseDate) {
   const baseMatch = String(baseDate || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (!baseMatch) return '';
@@ -304,6 +355,52 @@ function buildNaturalDateHints(text, baseDate) {
   }
 
   return hints.length ? `[DATE_HINT: ${hints.join(', ')}]` : '';
+}
+
+function resolveKidsNoteDateExpressions(text, writtenAt) {
+  const baseMatch = String(writtenAt || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!baseMatch) return [];
+  const anchor = new Date(Date.UTC(Number(baseMatch[1]), Number(baseMatch[2]) - 1, Number(baseMatch[3])));
+  const results = [];
+  const seen = new Set();
+  const addResult = (expression, date) => {
+    const resolvedDate = formatUtcCalendarDate(date);
+    const key = `${expression}|${resolvedDate}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      results.push({ expression, date: resolvedDate });
+    }
+  };
+
+  for (const [expression, days] of [['오늘', 0], ['내일', 1], ['모레', 2], ['글피', 3]]) {
+    if (text.includes(expression)) addResult(expression, addCalendarDays(anchor, days));
+  }
+
+  const mondayIndex = (anchor.getUTCDay() + 6) % 7;
+  const monday = addCalendarDays(anchor, -mondayIndex);
+  const qualifiedWeekdayRegex = /(이번\s*주|다음\s*주|다다음\s*주)\s*(월요일|화요일|수요일|목요일|금요일|토요일|일요일)/g;
+  for (const match of text.matchAll(qualifiedWeekdayRegex)) {
+    const qualifier = match[1].replace(/\s/g, '');
+    const weekOffset = qualifier === '이번주' ? 0 : qualifier === '다음주' ? 7 : 14;
+    addResult(match[0], addCalendarDays(monday, weekOffset + KOREAN_WEEKDAYS[match[2]]));
+  }
+
+  const explicitDateRegex = /(?:(\d{4})\s*[년./-]\s*)?(\d{1,2})\s*(?:월|[./-])\s*(\d{1,2})\s*(?:일)?/g;
+  for (const match of text.matchAll(explicitDateRegex)) {
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    if (month < 1 || month > 12 || day < 1 || day > 31) continue;
+    let year = match[1] ? Number(match[1]) : anchor.getUTCFullYear();
+    let date = new Date(Date.UTC(year, month - 1, day));
+    if (!match[1] && date.getTime() < anchor.getTime() - 31 * 24 * 60 * 60 * 1000) {
+      year++;
+      date = new Date(Date.UTC(year, month - 1, day));
+    }
+    if (date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) continue;
+    addResult(match[0], date);
+  }
+
+  return results;
 }
 
 function getBaseOffset(baseDate) {
@@ -716,6 +813,304 @@ function clearSavedKidsNoteSession(req, res) {
   res.setHeader('Set-Cookie', `${KIDSNOTE_SESSION_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`);
 }
 
+function parseCookieHeader(cookieHeader) {
+  return String(cookieHeader || '').split(';').map(part => {
+    const separator = part.indexOf('=');
+    if (separator < 1) return null;
+    return {
+      name: part.slice(0, separator).trim(),
+      value: part.slice(separator + 1).trim(),
+      domain: '.kidsnote.com',
+      path: '/'
+    };
+  }).filter(cookie => cookie?.name && cookie.value);
+}
+
+function isLikelyKidsNoteImageUrl(value) {
+  if (!value || /^(data:|blob:|javascript:)/i.test(value)) return false;
+  let url;
+  try {
+    url = new URL(value, 'https://www.kidsnote.com');
+  } catch {
+    return false;
+  }
+  if (!/^https?:$/.test(url.protocol)) return false;
+  const host = url.hostname.toLowerCase();
+  if (/(facebook|google|doubleclick|analytics|googletagmanager|sentry|intercom)/.test(host)) return false;
+  const pathname = url.pathname.toLowerCase();
+  if (/\.(svg|ico)$/i.test(pathname)) return false;
+  return /\.(jpe?g|png|webp|gif|heic)(?:$|\?)/i.test(`${pathname}${url.search}`) ||
+    /(kidsnote|amazonaws|cloudfront|cdn|image|photo|album|report)/i.test(`${host}${pathname}`);
+}
+
+function collectImageUrlsDeep(value, urls = new Set()) {
+  if (typeof value === 'string') {
+    if (isLikelyKidsNoteImageUrl(value)) urls.add(new URL(value, 'https://www.kidsnote.com').href);
+    return urls;
+  }
+  if (Array.isArray(value)) {
+    value.forEach(item => collectImageUrlsDeep(item, urls));
+    return urls;
+  }
+  if (value && typeof value === 'object') {
+    Object.values(value).forEach(item => collectImageUrlsDeep(item, urls));
+  }
+  return urls;
+}
+
+function getKidsNoteItemId(item) {
+  const value = item?.id || item?.uuid || item?.report_id || item?.album_id || item?.pk;
+  return value == null ? '' : String(value).trim();
+}
+
+function getKidsNoteItemDate(item) {
+  const value = item?.date_written || item?.written_at || item?.created_at || item?.created || item?.date || item?.updated_at || '';
+  const match = String(value || '').match(/^(\d{4}-\d{2}-\d{2})(?:[T\s](\d{2}:\d{2}(?::\d{2})?))?/);
+  if (!match) return '';
+  return match[2] ? `${match[1]}T${match[2]}` : match[1];
+}
+
+function getKidsNoteItemTitle(item) {
+  return stripHtml(item?.title || item?.subject || item?.name || item?.content_title || '').slice(0, 120);
+}
+
+function normalizeKidsNoteServiceUrl(value) {
+  if (!value) return '';
+  let url;
+  try {
+    url = new URL(String(value), 'https://www.kidsnote.com');
+  } catch {
+    return '';
+  }
+  if (url.hostname !== 'www.kidsnote.com') return '';
+  if (!/^\/service\/(report|album)(?:\/\d+)?\/?$/.test(url.pathname)) return '';
+  return url.href;
+}
+
+async function collectKidsNoteImageUrls(page, sourceType, sourcePage, candidates, discoveredPages) {
+  const result = await page.evaluate(() => {
+    const urls = new Set();
+    const links = new Set();
+    const addUrl = value => {
+      if (!value || /^(data:|blob:|javascript:)/i.test(value)) return;
+      try {
+        urls.add(new URL(value, location.href).href);
+      } catch {}
+    };
+    document.querySelectorAll('img').forEach(img => {
+      addUrl(img.currentSrc || img.src);
+      addUrl(img.getAttribute('data-src'));
+      addUrl(img.getAttribute('data-original'));
+      addUrl(img.getAttribute('data-lazy'));
+      addUrl(img.getAttribute('srcset')?.split(',').pop()?.trim()?.split(/\s+/)[0]);
+    });
+    document.querySelectorAll('[style*=\"background\"]').forEach(element => {
+      const style = element.getAttribute('style') || '';
+      for (const match of style.matchAll(/url\(["']?([^"')]+)["']?\)/g)) addUrl(match[1]);
+    });
+    document.querySelectorAll('a[href]').forEach(anchor => {
+      try {
+        const href = new URL(anchor.getAttribute('href'), location.href).href;
+        if (/\/service\/(report|album)/.test(new URL(href).pathname)) links.add(href);
+      } catch {}
+    });
+    return { urls: Array.from(urls), links: Array.from(links) };
+  });
+
+  for (const url of result.urls) {
+    if (isLikelyKidsNoteImageUrl(url)) candidates.set(url, { sourceType, sourcePage });
+  }
+  for (const link of result.links) {
+    if (!discoveredPages.has(link)) discoveredPages.add(link);
+  }
+}
+
+async function settleKidsNotePage(page) {
+  for (let round = 0; round < 3; round++) {
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await new Promise(resolve => setTimeout(resolve, 500));
+    const clicked = await page.evaluate(() => {
+      const buttons = Array.from(document.querySelectorAll('button, a')).filter(element => {
+        const text = (element.textContent || '').trim();
+        return /더\\s*보기|more|다음/i.test(text) && !element.disabled;
+      });
+      const target = buttons[0];
+      if (!target) return false;
+      target.click();
+      return true;
+    }).catch(() => false);
+    if (!clicked) {
+      const before = await page.evaluate(() => document.body.scrollHeight).catch(() => 0);
+      await new Promise(resolve => setTimeout(resolve, 300));
+      const after = await page.evaluate(() => document.body.scrollHeight).catch(() => 0);
+      if (after <= before) break;
+    }
+  }
+}
+
+async function withTimeout(promise, timeoutMs, label) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} 시간이 초과되었습니다.`)), timeoutMs);
+      })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function downloadKidsNoteImage(sourceUrl, session, meta) {
+  const response = await fetch(sourceUrl, {
+    headers: {
+      Cookie: session.cookie,
+      Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+      Referer: meta.sourcePage || 'https://www.kidsnote.com/service/report',
+      ...(session.enrollment ? { 'X-ENROLLMENT': session.enrollment } : {}),
+      'User-Agent': 'Mozilla/5.0 NEO-Planner-KidsNote-PhotoBackup/1.0'
+    },
+    redirect: 'follow',
+    signal: AbortSignal.timeout(30000)
+  });
+  if (!response.ok) return null;
+  const mimeType = response.headers.get('content-type') || '';
+  if (!mimeType.toLowerCase().startsWith('image/')) return null;
+  const buffer = Buffer.from(await response.arrayBuffer());
+  return addBackedUpPhoto({
+    sourceUrl,
+    buffer,
+    mimeType,
+    sourcePage: meta.sourcePage,
+    sourceType: meta.sourceType,
+    sourceDate: meta.sourceDate,
+    sourceTitle: meta.sourceTitle
+  });
+}
+
+function getKidsNoteImageUrlsFromItem(item) {
+  const urls = new Set();
+  const images = [
+    ...(Array.isArray(item?.attached_images) ? item.attached_images : []),
+    ...(Array.isArray(item?.images) ? item.images : []),
+    ...(Array.isArray(item?.photos) ? item.photos : [])
+  ];
+  for (const image of images) {
+    if (typeof image === 'string') {
+      if (isLikelyKidsNoteImageUrl(image)) urls.add(new URL(image).href);
+      continue;
+    }
+    for (const key of ['original', 'large', 'image', 'url', 'file', 'download_url', 'thumbnail']) {
+      if (image?.[key] && isLikelyKidsNoteImageUrl(image[key])) urls.add(new URL(image[key]).href);
+    }
+  }
+  for (const imageUrl of collectImageUrlsDeep(item)) urls.add(imageUrl);
+  return Array.from(urls);
+}
+
+async function fetchKidsNoteCollection(childId, cookie, collection, options = {}) {
+  const items = [];
+  const endpoint = `https://www.kidsnote.com/api/v1_2/children/${childId}/${collection}/?page_size=500`;
+  let nextUrl = endpoint;
+  const maxPages = Math.max(1, Math.min(50, Number(options.maxPages) || 50));
+  for (let page = 0; nextUrl && page < maxPages; page++) {
+    const url = new URL(nextUrl, endpoint);
+    const expectedPath = new RegExp(`/children/${String(childId)}/${collection}(?:/|$)`);
+    if (url.protocol !== 'https:' || !['www.kidsnote.com', 'kapi.kidsnote.com'].includes(url.hostname) || !expectedPath.test(url.pathname)) {
+      throw new Error(`키즈노트 ${collection} 다음 페이지 주소가 올바르지 않습니다.`);
+    }
+    const response = await fetch(url, {
+      headers: {
+        Cookie: cookie.trim(),
+        Accept: 'application/json',
+        ...(options.enrollment ? { 'X-ENROLLMENT': options.enrollment } : {}),
+        'User-Agent': 'NEO-Planner-KidsNote-PhotoBackup/1.0'
+      },
+      redirect: 'manual',
+      signal: AbortSignal.timeout(20000)
+    });
+    if (response.status === 401 || response.status === 403 || response.status === 302) {
+      const error = new Error('키즈노트 로그인이 만료되었습니다. 다시 로그인해 주세요.');
+      error.status = 401;
+      throw error;
+    }
+    if (!response.ok) throw new Error(`키즈노트 ${collection} 조회에 실패했습니다. (${response.status})`);
+    const payload = await response.json();
+    items.push(...getKidsNoteReports(payload));
+    nextUrl = typeof payload.next === 'string' && payload.next ? payload.next : '';
+  }
+  return items;
+}
+
+async function crawlKidsNotePhotos(session, job, options = {}) {
+  const candidates = new Map();
+  const collections = [
+    { name: 'reports', sourceType: 'report', servicePath: 'report' },
+    { name: 'albums', sourceType: 'album', servicePath: 'album' }
+  ];
+
+  for (const collection of collections) {
+    let items;
+    try {
+      job.progress.currentPage = `api:${collection.name}`;
+      items = await fetchKidsNoteCollection(session.childId, session.cookie, collection.name, {
+        enrollment: session.enrollment,
+        maxPages: options.maxPages
+      });
+    } catch (error) {
+      job.progress.failedPages = (job.progress.failedPages || 0) + 1;
+      console.warn(`KidsNote ${collection.name} API scan failed:`, error.message);
+      continue;
+    }
+
+    job.progress.pagesVisited = (job.progress.pagesVisited || 0) + 1;
+    for (const item of items) {
+      const itemId = getKidsNoteItemId(item);
+      const sourceDate = getKidsNoteItemDate(item);
+      const sourceTitle = getKidsNoteItemTitle(item);
+      const sourcePage = itemId && /^\d+$/.test(itemId)
+        ? `https://www.kidsnote.com/service/${collection.servicePath}/${itemId}`
+        : `https://www.kidsnote.com/service/${collection.servicePath}`;
+      updateExistingPhotoMetaBySourcePage(sourcePage, { sourceDate, sourceTitle, sourceType: collection.sourceType });
+      for (const imageUrl of getKidsNoteImageUrlsFromItem(item)) {
+        candidates.set(imageUrl, { sourceType: collection.sourceType, sourcePage, sourceDate, sourceTitle });
+      }
+    }
+    job.progress.found = candidates.size;
+    job.progress[collection.name] = items.length;
+  }
+
+  const existingUrls = getExistingPhotoUrlSet();
+  let saved = 0;
+  let skipped = 0;
+  let failed = 0;
+  let processed = 0;
+  const entries = Array.from(candidates.entries());
+  for (const [sourceUrl, meta] of entries) {
+    processed++;
+    job.progress = { ...job.progress, found: entries.length, processed, saved, skipped, failed, currentImage: sourceUrl };
+    if (existingUrls.has(sourceUrl)) {
+      updateExistingPhotoMeta(sourceUrl, meta);
+      skipped++;
+      continue;
+    }
+    try {
+      const photo = await downloadKidsNoteImage(sourceUrl, session, meta);
+      if (photo) {
+        existingUrls.add(sourceUrl);
+        saved++;
+      } else {
+        skipped++;
+      }
+    } catch (error) {
+      failed++;
+      console.warn('KidsNote photo download failed:', sourceUrl, error.message);
+    }
+  }
+  return { found: entries.length, saved, skipped, failed, pagesVisited: job.progress.pagesVisited || 0 };
+}
+
 function formatKidsNoteReport(report, index) {
   if (!report || typeof report !== 'object') return null;
   const content = stripHtml(report.content || report.body || report.text || report.description);
@@ -883,6 +1278,44 @@ function normalizeKidsNoteEvents(rawEvents, referenceDate) {
     .filter(Boolean));
 }
 
+const KIDSNOTE_ACTION_KEYWORD_REGEX = /(준비물|지참|제출|신청|마감|납부|입금|행사|견학|소풍|체험|방학|휴원|휴관|수업|상담|검사|검진|예방접종|입학|졸업|발표회|운동회|오리엔테이션|설명회|참석|등원|하원|예약|방문|촬영|생일|파티|공연|관람|모임)/i;
+
+function buildKidsNoteFallbackEvents(formattedReports, referenceDate) {
+  const fallbackOffset = getBaseOffset(referenceDate);
+  const events = [];
+  for (const report of formattedReports) {
+    const segments = `${report.title}\n${report.content}`
+      .split(/\n+|(?<=[.!?。！？])\s+/)
+      .map(segment => segment.trim())
+      .filter(Boolean);
+
+    for (const segment of segments) {
+      if (!KIDSNOTE_ACTION_KEYWORD_REGEX.test(segment)) continue;
+      const dateMatches = resolveKidsNoteDateExpressions(segment, report.writtenAt);
+      if (!dateMatches.length) continue;
+
+      for (const match of dateMatches.slice(0, 3)) {
+        const compactSegment = segment.replace(/\s+/g, ' ').slice(0, 140);
+        const titleSource = report.title && report.title !== '알림장' ? report.title : compactSegment;
+        events.push({
+          title: titleSource.slice(0, 60),
+          content: compactSegment,
+          startDate: `${match.date}T00:00:00${fallbackOffset}`,
+          endDate: `${match.date}T23:59:59${fallbackOffset}`,
+          allDay: true,
+          priority: /(마감|까지|제출|신청|납부|입금|준비물|지참)/.test(segment) ? 'high' : 'medium',
+          category: /(수업|검사|검진|입학|졸업|발표회|운동회|오리엔테이션|설명회)/.test(segment) ? 'study' : 'general',
+          dateReason: `키즈노트 본문의 "${match.expression}" 표현을 공지 작성일 ${report.writtenAt || 'unknown'} 기준 ${match.date}로 해석`,
+          evidence: segment,
+          sourceId: report.sourceId,
+          confidence: 0.78
+        });
+      }
+    }
+  }
+  return events;
+}
+
 async function parseKidsNoteReports(reports, referenceDate, options = {}) {
   const scheduleNoticePattern = /(오늘|내일|모레|이번\s*주|다음\s*주|다다음\s*주|월요일|화요일|수요일|목요일|금요일|토요일|일요일|\d{1,2}\s*월\s*\d{1,2}\s*일|\d{1,2}[./-]\d{1,2}|까지|마감|제출|신청|준비물|지참|행사|견학|소풍|방학|휴원|수업|상담|검사|예방접종|입학|졸업|발표회|운동회)/i;
   const formatted = reports
@@ -893,6 +1326,7 @@ async function parseKidsNoteReports(reports, referenceDate, options = {}) {
   const chunks = chunkKidsNoteReports(formatted);
   if (!chunks.length) return { events: [], reportCount: reports.length, analyzedCount: 0 };
   const reportsById = new Map(formatted.map(report => [String(report.sourceId), report]));
+  const fallbackEvents = buildKidsNoteFallbackEvents(formatted, referenceDate);
   const analyzedCount = chunks.reduce((count, chunk) => count + (chunk.match(/\[KIDSNOTE_REPORT\b/g) || []).length, 0);
 
   const schema = {
@@ -947,6 +1381,7 @@ Return JSON only.`;
       const response = await fetch(`${LLM_BASE_URL}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
         body: JSON.stringify({
           model: LLM_MODEL,
           messages: [{ role: 'system', content: prompt }, { role: 'user', content: chunk }],
@@ -965,8 +1400,11 @@ Return JSON only.`;
       console.warn(`KidsNote AI chunk failed (${failedChunks}/${chunks.length}):`, error.message);
     }
     if (typeof options.onProgress === 'function') {
+      const progressEvents = rawEvents.length
+        ? normalizeKidsNoteEvents(rawEvents, referenceDate)
+        : normalizeKidsNoteEvents(fallbackEvents, referenceDate);
       options.onProgress({
-        events: normalizeKidsNoteEvents(rawEvents, referenceDate),
+        events: progressEvents,
         reportCount: reports.length,
         analyzedCount: processedReports,
         totalAnalyzedCount: analyzedCount,
@@ -976,9 +1414,9 @@ Return JSON only.`;
     }
   }
 
-  if (failedChunks === chunks.length) throw new Error('AI가 키즈노트 일정 결과를 완성하지 못했습니다. 다시 시도해 주세요.');
+  if (failedChunks === chunks.length && !fallbackEvents.length) throw new Error('AI가 키즈노트 일정 결과를 완성하지 못했습니다. 다시 시도해 주세요.');
 
-  const events = normalizeKidsNoteEvents(rawEvents, referenceDate);
+  const events = normalizeKidsNoteEvents([...rawEvents, ...fallbackEvents], referenceDate);
   return { events, reportCount: reports.length, analyzedCount };
 }
 
@@ -1101,174 +1539,63 @@ app.delete('/api/kidsnote/session', (req, res) => {
   res.json({ connected: false });
 });
 
-// Chat Parsing Route using remote/local LLM Server (llama-server) with Smart Chunking
-app.post('/api/todos/parse-chat', async (req, res) => {
-  const { chatText, baseDate } = req.body;
-  if (!chatText) {
-    return res.status(400).json({ error: 'Chat text is required' });
-  }
+app.post('/api/photos/kidsnote-backup/start', (req, res) => {
+  const session = getSavedKidsNoteSession(req);
+  if (!session) return res.status(401).json({ error: '저장된 키즈노트 로그인이 없거나 만료되었습니다.' });
+  const extraUrls = String(req.body?.extraUrl || '')
+    .split(/\s+/)
+    .map(normalizeKidsNoteServiceUrl)
+    .filter(Boolean);
 
-  // Pre-filter to reduce token size and bypass CPU limits
-  console.log(`Original chat size: ${chatText.length} chars.`);
-  const filteredText = filterScheduleContext(chatText);
-  console.log(`Pre-filtered chat size: ${filteredText.length} chars.`);
-
-  const chunks = splitScheduleContext(filteredText);
-
-  console.log(`Split chat transcript into ${chunks.length} chunks for LLM processing.`);
-
-  const referenceDate = baseDate || new Date().toISOString();
-  const systemPrompt = `You extract calendar-worthy scheduled events from Korean KakaoTalk exports.
-Current reference time: ${referenceDate}
-
-DATE RESOLUTION (highest priority):
-1. A KakaoTalk message normally begins with its own timestamp, for example "2026년 7월 17일 오전 10:00, 이름 : ...". Relative expressions in that message such as 오늘, 내일, 모레, 이번 주, 다음 주 MUST be resolved from that MESSAGE timestamp, never from the current reference time.
-2. Use the current reference time only when the relevant message has no timestamp.
-3. A week runs Monday through Sunday. "이번 주 토요일" means Saturday in the message timestamp's week. "다음 주 수요일" means Wednesday in the immediately following Monday-Sunday week.
-4. Convert 오전/오후 correctly to 24-hour time. Noon is 12:00 and midnight is 00:00.
-5. Never invent a date or time. If the date cannot be resolved confidently from an explicit date, a relative expression plus message timestamp, or unambiguous nearby context, omit the event.
-6. When the scheduled date is clear but no schedule time is mentioned, create an all-day event: set allDay to true, startDate to 00:00:00, and endDate to 23:59:59 on that date. A KakaoTalk message header timestamp is not a schedule time. Never invent 09:00 or another arbitrary time.
-7. When a schedule time is mentioned, set allDay to false. If its duration is absent, use one hour.
-8. A time-only change inherits the already-resolved event date. For example, if "내일 3시에 회의" is confirmed and later "5시로 바뀌었어" appears, keep tomorrow's date and change only the time to 17:00. Never use the change message's posting date as the event date unless the message explicitly changes the date too.
-9. DATE_HINT annotations are calculated deterministically by the application and are authoritative. Copy the hinted YYYY-MM-DD exactly into startDate/endDate. Never recalculate or override a DATE_HINT. Do not include DATE_HINT text in evidence.
-10. EVENT_CANDIDATE annotations are coverage markers. When the context contains 1-3 markers, return exactly one decision object for every candidateId; rejected candidates use status cancelled or uncertain. When there are 4 or more markers, scan all of them but return only active events to keep the response compact. Multiple markers referring to the same event may produce duplicate decisions and the application will merge them. Do not include marker text in evidence.
-11. A phrase such as "8시에 끝나" gives an end time, not a start time. If only the end time is known, use one hour before it as start time and explain this in dateReason. Do not reinterpret an evening context as 08:00.
-12. A date range such as "월요일부터 금요일까지", "7월 20일~24일", or "3일 동안" is one period event. Return one event whose startDate is the first day and endDate is the last day. Never split it into one event per day.
-
-EVENT DECISION:
-- Include only a concrete, still-active commitment or clear personal intention.
-- A proposal becomes an event only when accepted (좋아, 그래, 알겠어, 그렇게 하자, 응) or when the speaker clearly states a committed plan/reservation.
-- Exclude unanswered questions, hypotheticals, casual mentions, events described as already happening/finished, and general discussion.
-- Follow the conversation lifecycle. A later change replaces the earlier time. A cancellation (취소, 안 가, 못 가, 미룸 without a replacement date) removes the event.
-- Historical chat exports are allowed. Extract a plan that was confirmed at the time of the conversation even when its resolved date is before the current reference time. The message timestamp determines what the speakers meant.
-- Do not duplicate the same event.
-- Extract every independent confirmed event in the context. Multiple different plans in the same messages must become separate event objects; never merge or silently omit the second plan.
-- Exclude long-term living arrangements, goals, habits, and vague life plans. Calendar events must have a bounded duration of at most 31 days.
-- status must describe the final conversation state: active, cancelled, or uncertain. Only active events are eligible for calendar output. When later text cancels an event without a replacement, set status to cancelled even if the earlier reservation was definite.
-- category: work only for jobs, coworkers, company meetings, or business; study only for classes, study, exams, or assignments; personal for meals, friends, family, health, and leisure; otherwise general.
-- priority: high only when the chat explicitly indicates urgency, a hard deadline, or major importance; otherwise medium. Casual plans may be low.
-
-EXPLANATION:
-- dateReason must briefly state the message timestamp used as the anchor and the calculation performed.
-- Write dateReason in Korean.
-- evidence must contain the shortest decisive chat excerpts supporting the original date, confirmation, and any later change. Do not omit the original date-bearing message when only the time is changed later.
-- confidence is 0 to 1. Use below 0.65 when date or confirmation is uncertain.
-
-Return one JSON object with an events array and no prose or markdown.`;
-
-  const eventSchema = {
-    type: 'object',
-    properties: {
-      events: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            title: { type: 'string' },
-            content: { type: 'string' },
-            startDate: { type: 'string' },
-            endDate: { type: 'string' },
-            allDay: { type: 'boolean' },
-            priority: { type: 'string', enum: ['low', 'medium', 'high'] },
-            category: { type: 'string', enum: ['work', 'personal', 'study', 'general'] },
-            dateReason: { type: 'string' },
-            evidence: { type: 'string' },
-            confidence: { type: 'number' },
-            status: { type: 'string', enum: ['active', 'cancelled', 'uncertain'] },
-            candidateId: { type: 'integer' }
-          },
-          required: ['title', 'content', 'startDate', 'endDate', 'allDay', 'priority', 'category', 'dateReason', 'evidence', 'confidence', 'status', 'candidateId'],
-          additionalProperties: false
-        }
-      }
-    },
-    required: ['events'],
-    additionalProperties: false
+  const jobId = crypto.randomBytes(24).toString('base64url');
+  const job = {
+    ownerToken: session.token,
+    status: 'processing',
+    createdAt: Date.now(),
+    progress: { pagesVisited: 0, found: 0, processed: 0, saved: 0, skipped: 0, failed: 0, currentPage: '', currentImage: '' },
+    result: null,
+    error: ''
   };
+  photoBackupJobs.set(jobId, job);
 
-  const allEvents = [];
-  const chunkErrors = [];
-
-  try {
-    // Process chunks sequentially to prevent server overload and GPU memory crashes
-    for (let i = 0; i < chunks.length; i++) {
-      let chunk = annotateRelativeDates(chunks[i]);
-      let candidateIds = Array.from(chunk.matchAll(/\[EVENT_CANDIDATE:(\d+)\]/g), match => Number(match[1]));
-      if (candidateIds.length > 3) {
-        chunk = chunk.replace(/\s*\[EVENT_CANDIDATE:\d+\]/g, '');
-        candidateIds = [];
-      }
-      const chunkSchema = JSON.parse(JSON.stringify(eventSchema));
-      // Strict per-candidate coverage is valuable for ordinary short chats, but forcing
-      // dozens of decision objects in a large export can overwhelm a local model.
-      if (candidateIds.length > 0 && candidateIds.length <= 3) {
-        chunkSchema.properties.events.minItems = candidateIds.length;
-      }
-      console.log(`Processing LLM chat parsing chunk ${i + 1}/${chunks.length}... (Size: ${chunk.length} chars)`);
-
-      const response = await fetch(`${LLM_BASE_URL}/v1/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: LLM_MODEL,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: chunk }
-          ],
-          temperature: 0,
-          max_tokens: 1800,
-          response_format: {
-            type: 'json_schema',
-            json_schema: { name: 'schedule_events', strict: true, schema: chunkSchema }
-          }
-        })
-      });
-
-      if (!response.ok) {
-        const errText = await response.text();
-        console.error(`Error in chunk ${i + 1}: Status ${response.status}. Msg: ${errText}`);
-        chunkErrors.push(`chunk ${i + 1}: LLM status ${response.status}`);
-        continue;
-      }
-
-      const data = await response.json();
-      let reply = data.choices[0].message.content.trim();
-      
-      // Clean markdown wrappers
-      if (reply.startsWith('```')) {
-        reply = reply.replace(/^```json\s*/, '').replace(/```$/, '').trim();
-      }
-
-      try {
-        const parsed = JSON.parse(reply);
-        const parsedEvents = Array.isArray(parsed) ? parsed : parsed.events;
-        if (Array.isArray(parsedEvents)) allEvents.push(...parsedEvents);
-      } catch (parseErr) {
-        console.error(`JSON Parse error in chunk ${i + 1} response:`, parseErr);
-        console.error("Raw LLM reply was:", reply);
-        chunkErrors.push(`chunk ${i + 1}: invalid JSON`);
-      }
+  setImmediate(async () => {
+    try {
+      job.result = await crawlKidsNotePhotos(session, job, { extraUrls });
+      job.progress = { ...job.progress, ...job.result, currentPage: '', currentImage: '' };
+      job.status = 'completed';
+    } catch (error) {
+      console.error('KidsNote photo backup error:', error.message);
+      job.error = error.message || '키즈노트 사진 백업에 실패했습니다.';
+      job.status = 'failed';
     }
+  });
 
-    if (chunks.length > 0 && chunkErrors.length === chunks.length) {
-      return res.status(502).json({ error: 'The LLM failed to return valid results', details: chunkErrors });
-    }
-
-    const normalizedEvents = allEvents
-      .map(event => normalizeExtractedEvent(event, referenceDate))
-      .filter(Boolean);
-    const finalEvents = deduplicateEvents(normalizedEvents);
-    if (chunkErrors.length) res.set('X-Parse-Warnings', String(chunkErrors.length));
-    console.log(`Completed parsing all chunks. Raw: ${allEvents.length}, validated: ${finalEvents.length}, warnings: ${chunkErrors.length}`);
-    res.json(finalEvents);
-
-  } catch (err) {
-    console.error('LLM Chunking process error:', err);
-    res.status(500).json({ error: 'Failed to process chat log chunks', details: err.message });
-  }
+  res.status(202).json({ jobId, status: job.status });
 });
+
+app.get('/api/photos/kidsnote-backup/jobs/:jobId', (req, res) => {
+  const session = getSavedKidsNoteSession(req);
+  const job = photoBackupJobs.get(req.params.jobId);
+  if (!session || !job || job.ownerToken !== session.token) {
+    return res.status(404).json({ error: '사진 백업 작업을 찾을 수 없습니다.' });
+  }
+  if (job.status === 'completed') {
+    photoBackupJobs.delete(req.params.jobId);
+    return res.json({ status: 'completed', result: job.result, progress: job.progress });
+  }
+  if (job.status === 'failed') {
+    photoBackupJobs.delete(req.params.jobId);
+    return res.status(500).json({ status: 'failed', error: job.error, progress: job.progress });
+  }
+  res.json({ status: 'processing', progress: job.progress });
+});
+
+setInterval(() => {
+  const cutoff = Date.now() - 2 * 60 * 60 * 1000;
+  for (const [jobId, job] of photoBackupJobs) {
+    if (job.createdAt < cutoff) photoBackupJobs.delete(jobId);
+  }
+}, 10 * 60 * 1000).unref();
 
 // Parse a user's direct natural-language schedule request into reviewable events.
 app.post('/api/todos/parse-natural-language', async (req, res) => {
@@ -1340,6 +1667,7 @@ Return one JSON object containing events and clarification. Return no prose or m
     const response = await fetch(`${LLM_BASE_URL}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
       body: JSON.stringify({
         model: LLM_MODEL,
         messages: [

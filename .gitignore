@@ -1,6 +1,7 @@
 node_modules/
 .env
 data/db.json
+data/photo-backups/
 data/kidsnote-sessions.json
 data/kidsnote-sessions.json.tmp
 __pycache__/
