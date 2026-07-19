@@ -191,8 +191,7 @@ function renderYearFilter() {
   }
   yearFilter.classList.remove('hidden');
 
-  const total = years.reduce((sum, year) => sum + (Number(yearCounts[year]) || 0), 0);
-  const options = [['', `전체 ${total}`], ...years.map(year => [year, `${year} ${yearCounts[year]}`])];
+  const options = [['', '전체'], ...years.map(year => [year, year])];
   for (const [year, label] of options) {
     const button = document.createElement('button');
     button.type = 'button';
