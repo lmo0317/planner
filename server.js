@@ -186,6 +186,18 @@ function getExistingPhotoUrlSet(photos = readPhotoIndex()) {
   return new Set(photos.map(photo => photo.sourceUrl).filter(Boolean));
 }
 
+function buildExistingPhotoUrlMap(photos = readPhotoIndex()) {
+  return new Map(photos.map(photo => [photo.sourceUrl, photo]).filter(([sourceUrl]) => Boolean(sourceUrl)));
+}
+
+function shouldUpdatePhotoMeta(photo, meta = {}) {
+  if (!photo) return false;
+  return (!photo.takenAt && Boolean(meta.sourceDate)) ||
+    (!photo.sourceTitle && Boolean(meta.sourceTitle)) ||
+    (!photo.sourceType && Boolean(meta.sourceType)) ||
+    (!photo.sourcePage && Boolean(meta.sourcePage));
+}
+
 function updateExistingPhotoMeta(sourceUrl, meta = {}) {
   const photos = readPhotoIndex();
   const index = photos.findIndex(photo => photo.sourceUrl === sourceUrl);
@@ -1266,9 +1278,7 @@ async function crawlKidsNotePhotos(session, job, options = {}) {
       const sourcePage = itemId && /^\d+$/.test(itemId)
         ? `https://www.kidsnote.com/service/${collection.servicePath}/${itemId}`
         : `https://www.kidsnote.com/service/${collection.servicePath}`;
-      updateExistingPhotoMetaBySourcePage(sourcePage, { sourceDate, sourceTitle, sourceType: collection.sourceType });
       for (const imageUrl of getKidsNoteImageUrlsFromItem(item)) {
-        updateExistingPhotoMetaByImageKey(imageUrl, { sourceDate, sourceTitle, sourceType: collection.sourceType, sourcePage });
         candidates.set(imageUrl, { sourceType: collection.sourceType, sourcePage, sourceDate, sourceTitle });
       }
     }
@@ -1276,7 +1286,8 @@ async function crawlKidsNotePhotos(session, job, options = {}) {
     job.progress[collection.name] = items.length;
   }
 
-  const existingUrls = getExistingPhotoUrlSet();
+  const existingPhotosByUrl = buildExistingPhotoUrlMap();
+  const existingUrls = new Set(existingPhotosByUrl.keys());
   let saved = 0;
   let skipped = 0;
   let failed = 0;
@@ -1286,7 +1297,9 @@ async function crawlKidsNotePhotos(session, job, options = {}) {
     processed++;
     job.progress = { ...job.progress, found: entries.length, processed, saved, skipped, failed, currentImage: sourceUrl };
     if (existingUrls.has(sourceUrl)) {
-      updateExistingPhotoMeta(sourceUrl, meta);
+      if (shouldUpdatePhotoMeta(existingPhotosByUrl.get(sourceUrl), meta)) {
+        updateExistingPhotoMeta(sourceUrl, meta);
+      }
       skipped++;
       continue;
     }
@@ -1737,6 +1750,11 @@ app.delete('/api/kidsnote/session', (req, res) => {
 app.post('/api/photos/kidsnote-backup/start', (req, res) => {
   const session = getSavedKidsNoteSession(req);
   if (!session) return res.status(401).json({ error: '저장된 키즈노트 로그인이 없거나 만료되었습니다.' });
+  for (const [existingJobId, existingJob] of photoBackupJobs.entries()) {
+    if (existingJob.ownerToken === session.token && existingJob.status === 'processing') {
+      return res.status(202).json({ jobId: existingJobId, status: existingJob.status, reused: true });
+    }
+  }
   const extraUrls = String(req.body?.extraUrl || '')
     .split(/\s+/)
     .map(normalizeKidsNoteServiceUrl)
