@@ -90,6 +90,30 @@ function getPhotoSourceId(sourceUrl) {
   return crypto.createHash('sha256').update(String(sourceUrl)).digest('hex');
 }
 
+function getKidsNoteImageKey(sourceUrl) {
+  try {
+    const url = new URL(sourceUrl);
+    const host = url.hostname.toLowerCase();
+    const parts = url.pathname.split('/').filter(Boolean);
+    if (host === 'up-kids-kage.kakao.com' && parts[0] === 'dn' && parts.length >= 5) {
+      return `${host}/${parts.slice(0, -1).join('/')}`;
+    }
+  } catch {}
+  return '';
+}
+
+function getKidsNoteImageQuality(sourceUrl, size = 0) {
+  let filename = '';
+  try {
+    filename = path.basename(new URL(sourceUrl).pathname).toLowerCase();
+  } catch {}
+  let score = 50;
+  if (/^(img|image|photo)\.(jpe?g|png|webp|gif|heic)$/i.test(filename)) score = 100;
+  else if (/_l\.(jpe?g|png|webp|gif|heic)$/i.test(filename) || /large/i.test(filename)) score = 80;
+  else if (/(_240x240|small|thumb|thumbnail|pre\d*_small)/i.test(filename)) score = 10;
+  return score * 10000000000 + (Number(size) || 0);
+}
+
 function getExistingPhotoUrlSet(photos = readPhotoIndex()) {
   return new Set(photos.map(photo => photo.sourceUrl).filter(Boolean));
 }
@@ -133,6 +157,26 @@ function addBackedUpPhoto({ sourceUrl, buffer, mimeType, sourcePage, sourceType,
   if (!Buffer.isBuffer(buffer) || buffer.length < 8 * 1024) return null;
   const photos = readPhotoIndex();
   if (photos.some(photo => photo.sourceUrl === sourceUrl)) return null;
+  const imageKey = getKidsNoteImageKey(sourceUrl);
+  if (imageKey) {
+    const duplicates = photos
+      .map((photo, index) => ({ photo, index, imageKey: photo.imageKey || getKidsNoteImageKey(photo.sourceUrl) }))
+      .filter(item => item.imageKey === imageKey);
+    const bestExisting = duplicates
+      .map(item => ({ ...item, quality: getKidsNoteImageQuality(item.photo.sourceUrl, item.photo.size) }))
+      .sort((a, b) => b.quality - a.quality)[0];
+    if (bestExisting && bestExisting.quality >= getKidsNoteImageQuality(sourceUrl, buffer.length)) {
+      return null;
+    }
+    for (const duplicate of duplicates) {
+      const filePath = path.join(PHOTO_FILES_DIR, duplicate.photo.filename);
+      if (fs.existsSync(filePath)) fs.rmSync(filePath, { force: true });
+    }
+    const duplicateIndexes = new Set(duplicates.map(item => item.index));
+    for (let index = photos.length - 1; index >= 0; index--) {
+      if (duplicateIndexes.has(index)) photos.splice(index, 1);
+    }
+  }
 
   const id = getPhotoSourceId(sourceUrl);
   const ext = getImageExtension(mimeType, sourceUrl);
@@ -154,7 +198,8 @@ function addBackedUpPhoto({ sourceUrl, buffer, mimeType, sourcePage, sourceType,
     source: 'kidsnote',
     sourceType,
     sourcePage,
-    sourceUrl
+    sourceUrl,
+    imageKey
   };
   writePhotoIndex([...photos, photo]);
   return photo;
@@ -1001,11 +1046,13 @@ function getKidsNoteImageUrlsFromItem(item) {
       if (isLikelyKidsNoteImageUrl(image)) urls.add(new URL(image).href);
       continue;
     }
-    for (const key of ['original', 'large', 'image', 'url', 'file', 'download_url', 'thumbnail']) {
-      if (image?.[key] && isLikelyKidsNoteImageUrl(image[key])) urls.add(new URL(image[key]).href);
+    for (const key of ['original', 'download_url', 'file', 'image', 'url', 'large']) {
+      if (image?.[key] && isLikelyKidsNoteImageUrl(image[key])) {
+        urls.add(new URL(image[key]).href);
+        break;
+      }
     }
   }
-  for (const imageUrl of collectImageUrlsDeep(item)) urls.add(imageUrl);
   return Array.from(urls);
 }
 
