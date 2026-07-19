@@ -191,13 +191,15 @@ function updateExistingPhotoMeta(sourceUrl, meta = {}) {
   const index = photos.findIndex(photo => photo.sourceUrl === sourceUrl);
   if (index === -1) return false;
   const photo = photos[index];
-  photos[index] = {
+  const next = {
     ...photo,
     takenAt: photo.takenAt || meta.sourceDate || '',
     sourceTitle: photo.sourceTitle || meta.sourceTitle || '',
     sourceType: photo.sourceType || meta.sourceType || '',
     sourcePage: photo.sourcePage || meta.sourcePage || ''
   };
+  if (JSON.stringify(next) === JSON.stringify(photo)) return false;
+  photos[index] = next;
   writePhotoIndex(photos);
   return true;
 }
