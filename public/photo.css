@@ -371,6 +371,11 @@ h2 { font-size: 1.25rem; }
 
 .empty-state svg { width: 44px; height: 44px; }
 
+.load-more {
+  width: 100%;
+  margin-top: 16px;
+}
+
 .toast {
   position: fixed;
   left: 50%;

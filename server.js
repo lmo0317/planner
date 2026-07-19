@@ -6,8 +6,11 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const https = require('https');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
 const db = require('./db');
 
+const execFileAsync = promisify(execFile);
 const app = express();
 const PORT = process.env.PORT || 3000;
 const LLM_BASE_URL = (process.env.LLM_BASE_URL || 'http://localhost:8081').replace(/\/$/, '');
@@ -20,9 +23,13 @@ const KIDSNOTE_SESSION_FILE = path.join(__dirname, 'data', 'kidsnote-sessions.js
 const CHROMIUM_EXECUTABLE = process.env.CHROMIUM_EXECUTABLE || '/snap/bin/chromium';
 const PHOTO_BACKUP_DIR = path.join(__dirname, 'data', 'photo-backups');
 const PHOTO_FILES_DIR = path.join(PHOTO_BACKUP_DIR, 'files');
+const PHOTO_THUMBS_DIR = path.join(PHOTO_BACKUP_DIR, 'thumbs');
 const PHOTO_INDEX_FILE = path.join(PHOTO_BACKUP_DIR, 'photos.json');
 const kidsNoteAnalysisJobs = new Map();
 const photoBackupJobs = new Map();
+const thumbnailQueue = [];
+let activeThumbnailJobs = 0;
+const MAX_THUMBNAIL_JOBS = 2;
 
 let koreanHolidayModulePromise;
 
@@ -44,6 +51,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 function ensurePhotoBackupStore() {
   fs.mkdirSync(PHOTO_FILES_DIR, { recursive: true });
+  fs.mkdirSync(PHOTO_THUMBS_DIR, { recursive: true });
   if (!fs.existsSync(PHOTO_INDEX_FILE)) {
     fs.writeFileSync(PHOTO_INDEX_FILE, '[]\n', 'utf8');
   }
@@ -68,6 +76,66 @@ function writePhotoIndex(photos) {
 function getPhotoById(id) {
   const photos = readPhotoIndex();
   return { photos, photo: photos.find(item => item.id === id) };
+}
+
+function getPhotoFilePath(photo) {
+  const filePath = path.resolve(PHOTO_FILES_DIR, photo?.filename || '');
+  const root = path.resolve(PHOTO_FILES_DIR) + path.sep;
+  return filePath.startsWith(root) ? filePath : '';
+}
+
+function getPhotoThumbPath(photo) {
+  const thumbPath = path.resolve(PHOTO_THUMBS_DIR, `${photo?.id || ''}.jpg`);
+  const root = path.resolve(PHOTO_THUMBS_DIR) + path.sep;
+  return thumbPath.startsWith(root) ? thumbPath : '';
+}
+
+function runThumbnailTask(task) {
+  return new Promise((resolve, reject) => {
+    thumbnailQueue.push({ task, resolve, reject });
+    drainThumbnailQueue();
+  });
+}
+
+function drainThumbnailQueue() {
+  while (activeThumbnailJobs < MAX_THUMBNAIL_JOBS && thumbnailQueue.length) {
+    const item = thumbnailQueue.shift();
+    activeThumbnailJobs++;
+    item.task()
+      .then(item.resolve, item.reject)
+      .finally(() => {
+        activeThumbnailJobs--;
+        drainThumbnailQueue();
+      });
+  }
+}
+
+async function ensurePhotoThumbnail(photo) {
+  ensurePhotoBackupStore();
+  const sourcePath = getPhotoFilePath(photo);
+  const thumbPath = getPhotoThumbPath(photo);
+  if (!sourcePath || !thumbPath || !fs.existsSync(sourcePath)) return '';
+  if (fs.existsSync(thumbPath)) return thumbPath;
+
+  const temporaryPath = `${thumbPath}.${process.pid}-${Date.now()}.tmp.jpg`;
+  try {
+    await runThumbnailTask(() => execFileAsync('ffmpeg', [
+      '-y',
+      '-hide_banner',
+      '-loglevel', 'error',
+      '-i', sourcePath,
+      '-vf', 'scale=360:360:force_original_aspect_ratio=increase,crop=360:360',
+      '-frames:v', '1',
+      '-q:v', '5',
+      temporaryPath
+    ], { timeout: 30000 }));
+    fs.renameSync(temporaryPath, thumbPath);
+    return thumbPath;
+  } catch (error) {
+    if (fs.existsSync(temporaryPath)) fs.rmSync(temporaryPath, { force: true });
+    console.warn('Photo thumbnail generation failed:', photo?.id, error.message);
+    return '';
+  }
 }
 
 function sanitizePhotoName(value) {
@@ -132,6 +200,29 @@ function updateExistingPhotoMeta(sourceUrl, meta = {}) {
   };
   writePhotoIndex(photos);
   return true;
+}
+
+function updateExistingPhotoMetaByImageKey(sourceUrl, meta = {}) {
+  const imageKey = getKidsNoteImageKey(sourceUrl);
+  if (!imageKey) return 0;
+  const photos = readPhotoIndex();
+  let changed = 0;
+  const updated = photos.map(photo => {
+    const currentKey = photo.imageKey || getKidsNoteImageKey(photo.sourceUrl);
+    if (currentKey !== imageKey) return photo;
+    const next = {
+      ...photo,
+      imageKey,
+      takenAt: photo.takenAt || meta.sourceDate || '',
+      sourceTitle: photo.sourceTitle || meta.sourceTitle || '',
+      sourceType: photo.sourceType || meta.sourceType || '',
+      sourcePage: photo.sourcePage || meta.sourcePage || ''
+    };
+    if (JSON.stringify(next) !== JSON.stringify(photo)) changed++;
+    return next;
+  });
+  if (changed) writePhotoIndex(updated);
+  return changed;
 }
 
 function updateExistingPhotoMetaBySourcePage(sourcePage, meta = {}) {
@@ -212,7 +303,10 @@ app.get('/photo', (req, res) => {
 
 app.get('/api/photos', (req, res) => {
   const sort = String(req.query.sort || 'sourceDateDesc');
-  const photos = readPhotoIndex()
+  const offset = Math.max(0, Number(req.query.offset) || 0);
+  const limit = Math.max(1, Math.min(200, Number(req.query.limit) || 80));
+  const query = String(req.query.q || '').trim().toLowerCase();
+  const allPhotos = readPhotoIndex()
     .filter(photo => fs.existsSync(path.join(PHOTO_FILES_DIR, photo.filename)))
     .sort((a, b) => {
       const aTaken = String(a.takenAt || '');
@@ -228,14 +322,42 @@ app.get('/api/photos', (req, res) => {
       if (!aTaken && bTaken) return 1;
       return bTaken.localeCompare(aTaken) || String(b.uploadedAt).localeCompare(String(a.uploadedAt));
     });
-  const totalSize = photos.reduce((sum, photo) => sum + (Number(photo.size) || 0), 0);
-  res.json({ photos, totalCount: photos.length, totalSize });
+  const filteredPhotos = query
+    ? allPhotos.filter(photo => {
+      const haystack = `${photo.originalName || ''} ${photo.sourceType || ''} ${photo.sourceTitle || ''} ${photo.sourceUrl || ''}`.toLowerCase();
+      return haystack.includes(query);
+    })
+    : allPhotos;
+  const totalSize = allPhotos.reduce((sum, photo) => sum + (Number(photo.size) || 0), 0);
+  res.json({
+    photos: filteredPhotos.slice(offset, offset + limit),
+    totalCount: filteredPhotos.length,
+    allCount: allPhotos.length,
+    totalSize,
+    offset,
+    limit,
+    hasMore: offset + limit < filteredPhotos.length
+  });
+});
+
+app.get('/api/photos/:id/thumb', async (req, res) => {
+  const { photo } = getPhotoById(req.params.id);
+  if (!photo) return res.status(404).json({ error: '사진을 찾을 수 없습니다.' });
+  const thumbPath = await ensurePhotoThumbnail(photo);
+  if (thumbPath) {
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    return res.type('jpg').sendFile(thumbPath);
+  }
+  const filePath = getPhotoFilePath(photo);
+  if (!filePath || !fs.existsSync(filePath)) return res.status(404).json({ error: '사진 파일을 찾을 수 없습니다.' });
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  return res.sendFile(filePath);
 });
 
 app.get('/api/photos/:id/file', (req, res) => {
   const { photo } = getPhotoById(req.params.id);
   if (!photo) return res.status(404).json({ error: '사진을 찾을 수 없습니다.' });
-  const filePath = path.join(PHOTO_FILES_DIR, photo.filename);
+  const filePath = getPhotoFilePath(photo);
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: '사진 파일을 찾을 수 없습니다.' });
   res.type(photo.mimeType || 'application/octet-stream');
   if (req.query.download === '1') {
@@ -248,8 +370,10 @@ app.get('/api/photos/:id/file', (req, res) => {
 app.delete('/api/photos/:id', (req, res) => {
   const { photos, photo } = getPhotoById(req.params.id);
   if (!photo) return res.status(404).json({ error: '사진을 찾을 수 없습니다.' });
-  const filePath = path.join(PHOTO_FILES_DIR, photo.filename);
+  const filePath = getPhotoFilePath(photo);
+  const thumbPath = getPhotoThumbPath(photo);
   if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  if (thumbPath && fs.existsSync(thumbPath)) fs.unlinkSync(thumbPath);
   writePhotoIndex(photos.filter(item => item.id !== req.params.id));
   res.json({ deleted: true });
 });
@@ -620,6 +744,23 @@ function getKidsNoteReports(payload) {
   if (Array.isArray(payload.results)) return payload.results;
   if (payload.data) return getKidsNoteReports(payload.data);
   return [];
+}
+
+function getKidsNoteNextCollectionUrl(nextValue, endpoint) {
+  if (!nextValue) return '';
+  const text = String(nextValue).trim();
+  if (!text) return '';
+  if (/^(https?:)?\/\//i.test(text) || text.startsWith('/')) {
+    try {
+      const url = new URL(text, endpoint);
+      if (/^https?:$/.test(url.protocol) && url.pathname.includes('/api/')) return url.href;
+    } catch {}
+  }
+  const url = new URL(endpoint);
+  if (url.searchParams.has('cursor')) url.searchParams.set('cursor', text);
+  else if (url.searchParams.has('page')) url.searchParams.set('page', text);
+  else url.searchParams.set('cursor', text);
+  return url.href;
 }
 
 function parseRequestCookies(req) {
@@ -1058,11 +1199,14 @@ function getKidsNoteImageUrlsFromItem(item) {
 
 async function fetchKidsNoteCollection(childId, cookie, collection, options = {}) {
   const items = [];
-  const endpoint = `https://www.kidsnote.com/api/v1_2/children/${childId}/${collection}/?page_size=500`;
+  const endpoint = `https://www.kidsnote.com/api/v1_2/children/${childId}/${collection}/?page_size=5000`;
   let nextUrl = endpoint;
   const maxPages = Math.max(1, Math.min(50, Number(options.maxPages) || 50));
+  const seenUrls = new Set();
   for (let page = 0; nextUrl && page < maxPages; page++) {
     const url = new URL(nextUrl, endpoint);
+    if (seenUrls.has(url.href)) break;
+    seenUrls.add(url.href);
     const expectedPath = new RegExp(`/children/${String(childId)}/${collection}(?:/|$)`);
     if (url.protocol !== 'https:' || !['www.kidsnote.com', 'kapi.kidsnote.com'].includes(url.hostname) || !expectedPath.test(url.pathname)) {
       throw new Error(`키즈노트 ${collection} 다음 페이지 주소가 올바르지 않습니다.`);
@@ -1085,7 +1229,8 @@ async function fetchKidsNoteCollection(childId, cookie, collection, options = {}
     if (!response.ok) throw new Error(`키즈노트 ${collection} 조회에 실패했습니다. (${response.status})`);
     const payload = await response.json();
     items.push(...getKidsNoteReports(payload));
-    nextUrl = typeof payload.next === 'string' && payload.next ? payload.next : '';
+    const resolvedNextUrl = getKidsNoteNextCollectionUrl(payload.next, endpoint);
+    nextUrl = resolvedNextUrl && !seenUrls.has(resolvedNextUrl) ? resolvedNextUrl : '';
   }
   return items;
 }
@@ -1121,6 +1266,7 @@ async function crawlKidsNotePhotos(session, job, options = {}) {
         : `https://www.kidsnote.com/service/${collection.servicePath}`;
       updateExistingPhotoMetaBySourcePage(sourcePage, { sourceDate, sourceTitle, sourceType: collection.sourceType });
       for (const imageUrl of getKidsNoteImageUrlsFromItem(item)) {
+        updateExistingPhotoMetaByImageKey(imageUrl, { sourceDate, sourceTitle, sourceType: collection.sourceType, sourcePage });
         candidates.set(imageUrl, { sourceType: collection.sourceType, sourcePage, sourceDate, sourceTitle });
       }
     }

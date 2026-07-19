@@ -13,6 +13,7 @@ const photoCount = document.getElementById('photo-count');
 const photoSize = document.getElementById('photo-size');
 const searchInput = document.getElementById('search-input');
 const sortSelect = document.getElementById('sort-select');
+const btnLoadMore = document.getElementById('btn-load-more');
 const toast = document.getElementById('toast');
 const photoViewer = document.getElementById('photo-viewer');
 const viewerImage = document.getElementById('viewer-image');
@@ -23,15 +24,19 @@ const viewerClose = document.getElementById('viewer-close');
 let photos = [];
 let isConnected = false;
 let activeJobId = '';
+let photoOffset = 0;
+let hasMorePhotos = false;
+const PHOTO_PAGE_SIZE = 80;
 
 document.addEventListener('DOMContentLoaded', () => {
   btnStartBackup.addEventListener('click', startKidsNoteBackup);
   btnRefresh.addEventListener('click', () => {
     refreshSession();
-    loadPhotos();
+    loadPhotos({ reset: true });
   });
-  searchInput.addEventListener('input', renderPhotos);
-  sortSelect.addEventListener('change', loadPhotos);
+  searchInput.addEventListener('input', debounce(() => loadPhotos({ reset: true }), 250));
+  sortSelect.addEventListener('change', () => loadPhotos({ reset: true }));
+  btnLoadMore.addEventListener('click', () => loadPhotos({ reset: false }));
   viewerClose.addEventListener('click', closePhotoViewer);
   photoViewer.addEventListener('click', (event) => {
     if (event.target === photoViewer) closePhotoViewer();
@@ -42,7 +47,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
   refreshSession();
-  loadPhotos();
+  loadPhotos({ reset: true });
   lucide.createIcons();
 });
 
@@ -66,16 +71,34 @@ async function refreshSession() {
   lucide.createIcons();
 }
 
-async function loadPhotos() {
+async function loadPhotos({ reset = true } = {}) {
   try {
-    const response = await fetch(`/api/photos?sort=${encodeURIComponent(sortSelect.value)}`, { cache: 'no-store' });
+    if (reset) {
+      photoOffset = 0;
+      photos = [];
+      gallery.innerHTML = '';
+    }
+    btnLoadMore.disabled = true;
+    const params = new URLSearchParams({
+      sort: sortSelect.value,
+      q: searchInput.value.trim(),
+      offset: String(photoOffset),
+      limit: String(PHOTO_PAGE_SIZE)
+    });
+    const response = await fetch(`/api/photos?${params.toString()}`, { cache: 'no-store' });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || '사진 목록을 불러오지 못했습니다.');
-    photos = Array.isArray(result.photos) ? result.photos : [];
+    const nextPhotos = Array.isArray(result.photos) ? result.photos : [];
+    photos = reset ? nextPhotos : [...photos, ...nextPhotos];
+    photoOffset = photos.length;
+    hasMorePhotos = result.hasMore === true;
     photoCount.textContent = String(result.totalCount || photos.length);
     photoSize.textContent = formatBytes(result.totalSize || photos.reduce((sum, photo) => sum + (photo.size || 0), 0));
     renderPhotos();
+    btnLoadMore.classList.toggle('hidden', !hasMorePhotos);
+    btnLoadMore.disabled = false;
   } catch (error) {
+    btnLoadMore.disabled = false;
     showToast(error.message);
   }
 }
@@ -122,7 +145,7 @@ async function pollBackupJob(jobId) {
       setProgress({ title: '백업 완료', ...result, processed: result.found || 0 });
       showToast(`새 사진 ${result.saved || 0}개를 저장했습니다.`);
       btnStartBackup.disabled = !isConnected;
-      await loadPhotos();
+      await loadPhotos({ reset: true });
       return;
     }
   }
@@ -148,22 +171,17 @@ function setProgress(progress) {
 }
 
 function renderPhotos() {
-  const query = searchInput.value.trim().toLowerCase();
-  const visible = photos.filter(photo => {
-    const haystack = `${photo.originalName || ''} ${photo.sourceType || ''} ${photo.sourceUrl || ''}`.toLowerCase();
-    return !query || haystack.includes(query);
-  });
   gallery.innerHTML = '';
-  emptyState.classList.toggle('hidden', visible.length > 0);
+  emptyState.classList.toggle('hidden', photos.length > 0);
 
-  for (const photo of visible) {
+  for (const photo of photos) {
     const card = document.createElement('article');
     card.className = 'photo-card';
 
     const image = document.createElement('img');
     image.className = 'photo-thumb';
     image.loading = 'lazy';
-    image.src = `/api/photos/${encodeURIComponent(photo.id)}/file`;
+    image.src = `/api/photos/${encodeURIComponent(photo.id)}/thumb`;
     image.alt = photo.originalName;
     image.tabIndex = 0;
     image.role = 'button';
@@ -189,10 +207,6 @@ function renderPhotos() {
     const sourceDate = photo.takenAt ? formatDate(photo.takenAt) : '글 날짜 없음';
     detail.textContent = `${sourceDate}${photo.sourceTitle ? ` · ${photo.sourceTitle}` : ''} · ${formatBytes(photo.size)}`;
 
-    const backupDate = document.createElement('div');
-    backupDate.className = 'photo-detail';
-    backupDate.textContent = `백업 ${formatDate(photo.uploadedAt)}`;
-
     const source = document.createElement('span');
     source.className = 'photo-source';
     source.textContent = photo.sourceType === 'album' ? '추억앨범' : '추억알림장';
@@ -213,7 +227,6 @@ function renderPhotos() {
 
     meta.appendChild(name);
     meta.appendChild(detail);
-    meta.appendChild(backupDate);
     meta.appendChild(source);
     actions.appendChild(download);
     actions.appendChild(remove);
@@ -252,7 +265,7 @@ async function deletePhoto(photo) {
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || '사진을 삭제하지 못했습니다.');
     showToast('사진을 삭제했습니다.');
-    await loadPhotos();
+    await loadPhotos({ reset: true });
   } catch (error) {
     showToast(error.message);
   }
@@ -293,4 +306,12 @@ function showToast(message) {
   toast.classList.add('show');
   clearTimeout(showToast.timer);
   showToast.timer = setTimeout(() => toast.classList.remove('show'), 2600);
+}
+
+function debounce(callback, wait) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => callback(...args), wait);
+  };
 }
