@@ -14,6 +14,11 @@ const photoSize = document.getElementById('photo-size');
 const searchInput = document.getElementById('search-input');
 const sortSelect = document.getElementById('sort-select');
 const toast = document.getElementById('toast');
+const photoViewer = document.getElementById('photo-viewer');
+const viewerImage = document.getElementById('viewer-image');
+const viewerTitle = document.getElementById('viewer-title');
+const viewerDetail = document.getElementById('viewer-detail');
+const viewerClose = document.getElementById('viewer-close');
 
 let photos = [];
 let isConnected = false;
@@ -27,6 +32,15 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   searchInput.addEventListener('input', renderPhotos);
   sortSelect.addEventListener('change', loadPhotos);
+  viewerClose.addEventListener('click', closePhotoViewer);
+  photoViewer.addEventListener('click', (event) => {
+    if (event.target === photoViewer) closePhotoViewer();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !photoViewer.classList.contains('hidden')) {
+      closePhotoViewer();
+    }
+  });
   refreshSession();
   loadPhotos();
   lucide.createIcons();
@@ -151,6 +165,16 @@ function renderPhotos() {
     image.loading = 'lazy';
     image.src = `/api/photos/${encodeURIComponent(photo.id)}/file`;
     image.alt = photo.originalName;
+    image.tabIndex = 0;
+    image.role = 'button';
+    image.title = '크게 보기';
+    image.addEventListener('click', () => openPhotoViewer(photo));
+    image.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        openPhotoViewer(photo);
+      }
+    });
 
     const meta = document.createElement('div');
     meta.className = 'photo-meta';
@@ -200,6 +224,25 @@ function renderPhotos() {
   }
 
   lucide.createIcons();
+}
+
+function openPhotoViewer(photo) {
+  const sourceDate = photo.takenAt ? formatDate(photo.takenAt) : '글 날짜 없음';
+  viewerImage.src = `/api/photos/${encodeURIComponent(photo.id)}/file`;
+  viewerImage.alt = photo.originalName || '백업 사진';
+  viewerTitle.textContent = photo.originalName || '백업 사진';
+  viewerDetail.textContent = `${sourceDate}${photo.sourceTitle ? ` · ${photo.sourceTitle}` : ''} · ${photo.sourceType === 'album' ? '추억앨범' : '추억알림장'}`;
+  photoViewer.classList.remove('hidden');
+  photoViewer.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('viewer-open');
+  viewerClose.focus();
+}
+
+function closePhotoViewer() {
+  photoViewer.classList.add('hidden');
+  photoViewer.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('viewer-open');
+  viewerImage.removeAttribute('src');
 }
 
 async function deletePhoto(photo) {

@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/lucide@latest"></script>
-  <link rel="stylesheet" href="/photo.css?v=20260719-2">
+  <link rel="stylesheet" href="/photo.css?v=20260719-3">
 </head>
 <body>
   <main class="photo-shell">
@@ -89,7 +89,20 @@
     </section>
   </main>
 
+  <div id="photo-viewer" class="photo-viewer hidden" aria-hidden="true">
+    <button id="viewer-close" class="viewer-close" type="button" aria-label="닫기">
+      <i data-lucide="x"></i>
+    </button>
+    <div class="viewer-frame" role="dialog" aria-modal="true" aria-label="사진 크게 보기">
+      <img id="viewer-image" alt="">
+      <div class="viewer-caption">
+        <strong id="viewer-title"></strong>
+        <span id="viewer-detail"></span>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" class="toast"></div>
-  <script src="/photo.js?v=20260719-2"></script>
+  <script src="/photo.js?v=20260719-3"></script>
 </body>
 </html>
