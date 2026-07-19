@@ -26,6 +26,7 @@ let isConnected = false;
 let activeJobId = '';
 let photoOffset = 0;
 let hasMorePhotos = false;
+let viewerHistoryActive = false;
 const PHOTO_PAGE_SIZE = 80;
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -44,6 +45,11 @@ document.addEventListener('DOMContentLoaded', () => {
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && !photoViewer.classList.contains('hidden')) {
       closePhotoViewer();
+    }
+  });
+  window.addEventListener('popstate', () => {
+    if (!photoViewer.classList.contains('hidden') && viewerHistoryActive) {
+      closePhotoViewer({ fromHistory: true });
     }
   });
   refreshSession();
@@ -241,21 +247,31 @@ function renderPhotos() {
 
 function openPhotoViewer(photo) {
   const sourceDate = photo.takenAt ? formatDate(photo.takenAt) : '글 날짜 없음';
+  const wasClosed = photoViewer.classList.contains('hidden');
   viewerImage.src = `/api/photos/${encodeURIComponent(photo.id)}/file`;
   viewerImage.alt = photo.originalName || '백업 사진';
   viewerTitle.textContent = photo.originalName || '백업 사진';
   viewerDetail.textContent = `${sourceDate}${photo.sourceTitle ? ` · ${photo.sourceTitle}` : ''} · ${photo.sourceType === 'album' ? '추억앨범' : '추억알림장'}`;
+  if (wasClosed) {
+    window.history.pushState({ photoViewer: true }, '', window.location.href);
+    viewerHistoryActive = true;
+  }
   photoViewer.classList.remove('hidden');
   photoViewer.setAttribute('aria-hidden', 'false');
   document.body.classList.add('viewer-open');
   viewerClose.focus();
 }
 
-function closePhotoViewer() {
+function closePhotoViewer({ fromHistory = false } = {}) {
+  const shouldRestoreHistory = viewerHistoryActive && !fromHistory;
   photoViewer.classList.add('hidden');
   photoViewer.setAttribute('aria-hidden', 'true');
   document.body.classList.remove('viewer-open');
   viewerImage.removeAttribute('src');
+  viewerHistoryActive = false;
+  if (shouldRestoreHistory) {
+    window.history.back();
+  }
 }
 
 async function deletePhoto(photo) {
