@@ -242,6 +242,31 @@ h2 { font-size: 1.25rem; }
 .gallery-panel { padding: 18px; }
 .gallery-toolbar { margin-bottom: 16px; }
 
+.year-filter {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 16px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.year-filter button {
+  flex: 0 0 auto;
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #202637;
+  color: var(--muted);
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+.year-filter button.active {
+  border-color: rgba(16, 185, 129, 0.7);
+  background: rgba(16, 185, 129, 0.14);
+  color: #b7f7dc;
+}
+
 .gallery-controls {
   display: flex;
   align-items: center;

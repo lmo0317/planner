@@ -14,6 +14,7 @@ const photoSize = document.getElementById('photo-size');
 const searchInput = document.getElementById('search-input');
 const sortSelect = document.getElementById('sort-select');
 const btnLoadMore = document.getElementById('btn-load-more');
+const yearFilter = document.getElementById('year-filter');
 const toast = document.getElementById('toast');
 const photoViewer = document.getElementById('photo-viewer');
 const viewerImage = document.getElementById('viewer-image');
@@ -27,6 +28,8 @@ let activeJobId = '';
 let photoOffset = 0;
 let hasMorePhotos = false;
 let viewerHistoryActive = false;
+let selectedYear = '';
+let yearCounts = {};
 const PHOTO_PAGE_SIZE = 80;
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -88,6 +91,7 @@ async function loadPhotos({ reset = true } = {}) {
     const params = new URLSearchParams({
       sort: sortSelect.value,
       q: searchInput.value.trim(),
+      year: selectedYear,
       offset: String(photoOffset),
       limit: String(PHOTO_PAGE_SIZE)
     });
@@ -98,8 +102,10 @@ async function loadPhotos({ reset = true } = {}) {
     photos = reset ? nextPhotos : [...photos, ...nextPhotos];
     photoOffset = photos.length;
     hasMorePhotos = result.hasMore === true;
+    yearCounts = result.yearCounts || {};
     photoCount.textContent = String(result.totalCount || photos.length);
     photoSize.textContent = formatBytes(result.totalSize || photos.reduce((sum, photo) => sum + (photo.size || 0), 0));
+    renderYearFilter();
     renderPhotos();
     btnLoadMore.classList.toggle('hidden', !hasMorePhotos);
     btnLoadMore.disabled = false;
@@ -174,6 +180,31 @@ function setProgress(progress) {
 
   const current = progress.currentPage || progress.currentImage || progress.detail || '';
   progressDetail.textContent = `페이지 ${pagesVisited}개 · 저장 ${saved}개 · 중복/제외 ${skipped}개 · 다운로드 실패 ${failed}개 · 페이지 스킵 ${failedPages}개${current ? ` · ${shorten(current, 80)}` : ''}`;
+}
+
+function renderYearFilter() {
+  const years = Object.keys(yearCounts).filter(year => /^\d{4}$/.test(year)).sort((a, b) => b.localeCompare(a));
+  yearFilter.innerHTML = '';
+  if (!years.length) {
+    yearFilter.classList.add('hidden');
+    return;
+  }
+  yearFilter.classList.remove('hidden');
+
+  const total = years.reduce((sum, year) => sum + (Number(yearCounts[year]) || 0), 0);
+  const options = [['', `전체 ${total}`], ...years.map(year => [year, `${year} ${yearCounts[year]}`])];
+  for (const [year, label] of options) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = year === selectedYear ? 'active' : '';
+    button.textContent = label;
+    button.addEventListener('click', () => {
+      if (selectedYear === year) return;
+      selectedYear = year;
+      loadPhotos({ reset: true });
+    });
+    yearFilter.appendChild(button);
+  }
 }
 
 function renderPhotos() {

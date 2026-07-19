@@ -320,6 +320,7 @@ app.get('/api/photos', (req, res) => {
   const offset = Math.max(0, Number(req.query.offset) || 0);
   const limit = Math.max(1, Math.min(200, Number(req.query.limit) || 80));
   const query = String(req.query.q || '').trim().toLowerCase();
+  const year = String(req.query.year || '').trim();
   const allPhotos = readPhotoIndex()
     .filter(photo => fs.existsSync(path.join(PHOTO_FILES_DIR, photo.filename)))
     .sort((a, b) => {
@@ -336,18 +337,26 @@ app.get('/api/photos', (req, res) => {
       if (!aTaken && bTaken) return 1;
       return bTaken.localeCompare(aTaken) || String(b.uploadedAt).localeCompare(String(a.uploadedAt));
     });
-  const filteredPhotos = query
-    ? allPhotos.filter(photo => {
+  const yearCounts = allPhotos.reduce((counts, photo) => {
+    const photoYear = String(photo.takenAt || '').slice(0, 4);
+    if (/^\d{4}$/.test(photoYear)) counts[photoYear] = (counts[photoYear] || 0) + 1;
+    return counts;
+  }, {});
+  const filteredPhotos = allPhotos
+    .filter(photo => !/^\d{4}$/.test(year) || String(photo.takenAt || '').startsWith(year))
+    .filter(photo => {
+      if (!query) return true;
       const haystack = `${photo.originalName || ''} ${photo.sourceType || ''} ${photo.sourceTitle || ''} ${photo.sourceUrl || ''}`.toLowerCase();
       return haystack.includes(query);
-    })
-    : allPhotos;
+    });
   const totalSize = allPhotos.reduce((sum, photo) => sum + (Number(photo.size) || 0), 0);
   res.json({
     photos: filteredPhotos.slice(offset, offset + limit),
     totalCount: filteredPhotos.length,
     allCount: allPhotos.length,
     totalSize,
+    yearCounts,
+    selectedYear: /^\d{4}$/.test(year) ? year : '',
     offset,
     limit,
     hasMore: offset + limit < filteredPhotos.length
