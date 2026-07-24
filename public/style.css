@@ -3078,11 +3078,11 @@ input[type="color"]::-webkit-color-swatch {
     margin-top: 4px;
   }
 
-  /* Day View Timeline Grid styling */
+  /* Day View Timeline Grid styling - GIANT & CLEAR */
   .day-timeline-grid {
     display: flex;
     flex-direction: column;
-    margin-top: 20px;
+    margin-top: 24px;
     max-height: calc(100svh - 260px);
     overflow-y: auto;
     padding-right: 4px;
@@ -3091,26 +3091,26 @@ input[type="color"]::-webkit-color-swatch {
   .day-all-day-section {
     display: flex;
     align-items: center;
-    border-bottom: 2px solid rgba(255,255,255,0.1);
-    padding: 16px 0;
-    margin-bottom: 16px;
+    border-bottom: 2.5px solid rgba(255,255,255,0.12);
+    padding: 24px 0; /* Giant padding */
+    margin-bottom: 24px;
   }
   
   .day-timeline-row {
     display: flex;
-    min-height: 76px;
+    min-height: 120px; /* GIANT height: was 76px */
     position: relative;
   }
   
   .day-timeline-time-label {
-    width: 72px;
-    min-width: 72px;
-    font-size: 1.15rem;
-    font-weight: 700;
+    width: 110px; /* GIANT: was 72px */
+    min-width: 110px;
+    font-size: 1.6rem; /* GIANT: was 1.15rem */
+    font-weight: 800; /* Extra bold */
     color: #8c8c92;
-    padding-top: 8px;
+    padding-top: 12px;
     text-align: right;
-    padding-right: 16px;
+    padding-right: 20px;
     user-select: none;
   }
   
@@ -3118,39 +3118,45 @@ input[type="color"]::-webkit-color-swatch {
     flex: 1;
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
-    padding-bottom: 8px;
+    gap: 12px;
+    padding-bottom: 12px;
   }
   
   .day-timeline-slot {
     flex: 1;
     display: flex;
-    gap: 12px;
+    gap: 16px;
     align-items: stretch;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
-    padding: 8px 0 14px 12px;
+    border-top: 2px solid rgba(255, 255, 255, 0.08); /* Stronger divider line */
+    padding: 12px 0 20px 16px;
     cursor: pointer;
   }
   
   .day-timeline-slot:hover {
-    background: rgba(255, 255, 255, 0.02);
+    background: rgba(255, 255, 255, 0.03);
   }
   
   .day-timeline-slot .day-event-card {
     flex: 1;
     margin: 0;
     min-width: 0;
-    border-radius: 14px;
-    padding: 12px 16px;
-    font-size: 1.25rem;
+    border-radius: 18px; /* GIANT roundness */
+    padding: 20px 24px; /* GIANT padding */
+    font-size: 1.6rem; /* GIANT: was 1.25rem */
     font-weight: 700;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    box-shadow: 0 6px 18px rgba(0,0,0,0.22);
     display: flex;
     flex-direction: column;
     justify-content: center;
     transition: transform 0.15s ease, filter 0.15s ease;
+    border-left-width: 8px !important; /* Thicker left color accent strip */
   }
   
+  .day-timeline-slot .day-event-card-time {
+    font-size: 1.25rem !important; /* GIANT: was 0.95rem */
+    margin-top: 8px !important;
+  }
+
   .day-timeline-slot .day-event-card:active {
     transform: scale(0.98);
     filter: brightness(0.9);
