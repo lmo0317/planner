@@ -1932,13 +1932,13 @@ input[type="color"]::-webkit-color-swatch {
   }
 
   .view-modes-section {
-    margin-bottom: 36px;
+    margin-bottom: 40px;
   }
   
   .view-modes-section ul {
     display: flex;
     flex-direction: column;
-    gap: 16px; /* Increased gap */
+    gap: 20px; /* Increased spacing */
     padding: 0;
     margin: 0;
     list-style: none;
@@ -1947,19 +1947,19 @@ input[type="color"]::-webkit-color-swatch {
   .view-modes-section li {
     display: flex;
     align-items: center;
-    gap: 24px; /* ENLARGED: was 20px */
-    padding: 22px 28px; /* ENLARGED: was 18px 24px */
+    gap: 28px; /* ENLARGED: was 24px */
+    padding: 26px 32px; /* ENLARGED: was 22px 28px */
     border-radius: 20px;
     color: #c9c9ce;
-    font-size: 1.6rem; /* ENLARGED: was 1.45rem */
-    font-weight: 600;
+    font-size: 1.95rem; /* ENLARGED: was 1.6rem */
+    font-weight: 700; /* Bolder */
     cursor: pointer;
     transition: background 0.15s ease, color 0.15s ease;
   }
   
   .view-modes-section li svg {
-    width: 34px !important; /* ENLARGED: was 30px */
-    height: 34px !important;
+    width: 42px !important; /* ENLARGED: was 34px */
+    height: 42px !important;
   }
   
   .view-modes-section li.active {
