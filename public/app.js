@@ -2023,7 +2023,7 @@ function renderWeek() {
   for (let i = 0; i < 7; i++) {
     const dayDate = new Date(startOfWeek);
     dayDate.setDate(startOfWeek.getDate() + i);
-    const dayStringStr = dayDate.toISOString().slice(0, 10);
+    const dayStringStr = formatDateString(dayDate);
     
     const isToday = dayDate.toDateString() === today.toDateString();
     
@@ -2143,7 +2143,7 @@ function renderDay() {
   
   const today = new Date();
   const date = currentViewDate;
-  const dayStringStr = date.toISOString().slice(0, 10);
+  const dayStringStr = formatDateString(date);
   
   const isToday = date.toDateString() === today.toDateString();
   
