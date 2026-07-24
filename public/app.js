@@ -2243,6 +2243,11 @@ function renderDay() {
     row.classList.add('day-timeline-row');
     row.setAttribute('data-hour', hour);
     
+    // Highlight current hour slot if the viewed day is today
+    if (isToday && hour === today.getHours()) {
+      row.classList.add('current-hour');
+    }
+    
     const label = document.createElement('div');
     label.classList.add('day-timeline-time-label');
     label.textContent = `${String(hour).padStart(2, '0')}:00`;

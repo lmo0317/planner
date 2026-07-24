@@ -3161,3 +3161,14 @@ input[type="color"]::-webkit-color-swatch {
     transform: scale(0.98);
     filter: brightness(0.9);
   }
+
+  /* Highlight current hour in Day view */
+  .day-timeline-row.current-hour {
+    background: rgba(107, 92, 255, 0.08); /* Glow background */
+    border-left: 6px solid #6b5cff; /* Neon left border stripe */
+  }
+
+  .day-timeline-row.current-hour .day-timeline-time-label {
+    color: #a9a2ff !important; /* Glow time text */
+    font-weight: 900;
+  }
