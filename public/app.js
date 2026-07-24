@@ -1,6 +1,7 @@
 // State management
 let currentViewDate = new Date();
 let currentView = 'month'; // 'month' or 'list'
+let isTransitioning = false;
 let todos = [];
 let selectedCategory = 'all';
 let selectedPriority = 'all';
@@ -270,10 +271,10 @@ function setupEventListeners() {
 
   // Calendar navigation
   btnPrev.addEventListener('click', () => {
-    navigateCalendar(-1);
+    navigateCalendarWithAnim(-1);
   });
   btnNext.addEventListener('click', () => {
-    navigateCalendar(1);
+    navigateCalendarWithAnim(1);
   });
   btnToday.addEventListener('click', () => {
     currentViewDate = new Date();
@@ -344,10 +345,10 @@ function setupEventListeners() {
       if (Math.abs(diffX) > 70 && Math.abs(diffY) < 50) {
         if (diffX > 0) {
           // Swipe Right -> View Prev
-          navigateCalendar(-1);
+          navigateCalendarWithAnim(-1);
         } else {
           // Swipe Left -> View Next
-          navigateCalendar(1);
+          navigateCalendarWithAnim(1);
         }
       }
     }, { passive: true });
@@ -411,6 +412,54 @@ function navigateCalendar(direction) {
     currentViewDate.setMonth(currentMonth + direction);
   }
   render();
+}
+
+// Navigate Calendar with smooth Slide & Opacity Transition
+function navigateCalendarWithAnim(direction) {
+  if (isTransitioning) return;
+  
+  // List view doesn't have horizontal swipe transition
+  if (currentView === 'list') {
+    navigateCalendar(direction);
+    return;
+  }
+
+  const activePanel = document.querySelector('.view-panel.active');
+  if (!activePanel) {
+    navigateCalendar(direction);
+    return;
+  }
+  
+  isTransitioning = true;
+  
+  const outClass = direction > 0 ? 'slide-out-left' : 'slide-out-right';
+  const inClass = direction > 0 ? 'slide-in-right' : 'slide-in-left';
+  
+  // 1. Start slide-out animation
+  activePanel.classList.add(outClass);
+  
+  // 2. Perform state update and render when old content is out (after 150ms)
+  setTimeout(() => {
+    if (currentView === 'week') {
+      currentViewDate.setDate(currentViewDate.getDate() + (direction * 7));
+    } else if (currentView === 'day') {
+      currentViewDate.setDate(currentViewDate.getDate() + direction);
+    } else {
+      const currentMonth = currentViewDate.getMonth();
+      currentViewDate.setMonth(currentMonth + direction);
+    }
+    
+    render();
+    
+    activePanel.classList.remove(outClass);
+    activePanel.classList.add(inClass);
+    
+    // 3. Clear the slide-in class when animation is complete (after 150ms)
+    setTimeout(() => {
+      activePanel.classList.remove(inClass);
+      isTransitioning = false;
+    }, 150);
+  }, 150);
 }
 
 // Get filtered tasks helper

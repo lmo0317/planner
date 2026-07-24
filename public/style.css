@@ -1782,6 +1782,43 @@ input[type="color"]::-webkit-color-swatch {
   display: none;
 }
 
+/* Slide Transition Animations for Swipe & Navigation */
+@keyframes slideOutLeft {
+  0% { transform: translateX(0); opacity: 1; filter: blur(0); }
+  100% { transform: translateX(-40px); opacity: 0; filter: blur(2px); }
+}
+
+@keyframes slideInRight {
+  0% { transform: translateX(40px); opacity: 0; filter: blur(2px); }
+  100% { transform: translateX(0); opacity: 1; filter: blur(0); }
+}
+
+@keyframes slideOutRight {
+  0% { transform: translateX(0); opacity: 1; filter: blur(0); }
+  100% { transform: translateX(40px); opacity: 0; filter: blur(2px); }
+}
+
+@keyframes slideInLeft {
+  0% { transform: translateX(-40px); opacity: 0; filter: blur(2px); }
+  100% { transform: translateX(0); opacity: 1; filter: blur(0); }
+}
+
+.slide-out-left {
+  animation: slideOutLeft 0.15s ease-in forwards;
+}
+
+.slide-in-right {
+  animation: slideInRight 0.15s ease-out forwards;
+}
+
+.slide-out-right {
+  animation: slideOutRight 0.15s ease-in forwards;
+}
+
+.slide-in-left {
+  animation: slideInLeft 0.15s ease-out forwards;
+}
+
 @media (max-width: 640px) {
   .ai-schedule-modal-content,
   .kidsnote-modal-content {
