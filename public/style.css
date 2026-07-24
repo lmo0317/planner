@@ -1947,18 +1947,18 @@ input[type="color"]::-webkit-color-swatch {
   }
 
   .calendar-days {
-    padding: 10px 8px 12px;
+    padding: 14px 8px 16px;
     background: transparent;
     border-top: 1px solid rgba(255,255,255,0.035);
     border-bottom: 1px solid rgba(255,255,255,0.07);
     color: #a9a9ae;
-    font-size: 0.92rem;
-    font-weight: 600;
+    font-size: 1.25rem;
+    font-weight: 700;
   }
 
   .calendar-grid {
     min-height: 0;
-    height: calc(100svh - 144px);
+    height: calc(100svh - 162px); /* Adjusted for taller calendar-days header */
     grid-template-rows: repeat(6, minmax(0, 1fr));
     background: transparent;
   }
@@ -1971,13 +1971,13 @@ input[type="color"]::-webkit-color-swatch {
   }
 
   .calendar-date-header {
-    min-height: 28px;
+    min-height: 44px;
     justify-content: center;
   }
 
   .holiday-name {
     display: block !important;
-    font-size: 0.65rem;
+    font-size: 0.8rem;
     color: #ef4444;
     text-align: center;
     margin-top: 2px;
@@ -1989,11 +1989,11 @@ input[type="color"]::-webkit-color-swatch {
 
   .day-number {
     align-self: center;
-    flex-basis: 28px;
-    width: 28px;
-    height: 28px;
-    font-size: 1.08rem;
-    font-weight: 600;
+    flex-basis: 44px;
+    width: 44px;
+    height: 44px;
+    font-size: 1.55rem;
+    font-weight: 700;
     color: #e0e0e4;
     display: flex;
     align-items: center;
@@ -2001,7 +2001,7 @@ input[type="color"]::-webkit-color-swatch {
   }
 
   .calendar-day.other-month .day-number {
-    color: #444448; /* extremely dim other month dates to match Naver Calendar */
+    color: #606066;
   }
 
   .calendar-day.today .day-number {
@@ -2011,36 +2011,28 @@ input[type="color"]::-webkit-color-swatch {
   }
 
   .day-events {
-    gap: 3px;
-    margin: 5px -4px 0;
+    gap: 4px;
+    margin: 6px -4px 0;
     overflow: hidden;
   }
 
   .event-item,
   .event-lane-placeholder {
-    flex-basis: 21px;
-    min-height: 21px;
+    flex-basis: 28px;
+    min-height: 28px;
     margin-left: 4px;
     margin-right: 4px;
   }
 
   .event-item {
-    padding: 2px 4px;
+    padding: 5px 8px;
     border: 0;
     border-radius: 4px;
-    font-size: 0.82rem;
+    font-size: 0.95rem;
+    background: rgba(92, 102, 184, 0.55) !important;
     color: #dddff5;
     box-shadow: none;
     font-weight: 600;
-  }
-
-  .event-item.timed-event {
-    box-shadow: none !important;
-    background: transparent !important;
-  }
-
-  .event-item.all-day-event {
-    box-shadow: 0 1px 3px rgba(0,0,0,0.15) !important;
   }
 
   .event-item.period-event.continues-before,
