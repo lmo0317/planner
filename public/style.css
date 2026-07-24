@@ -691,6 +691,26 @@ body {
   pointer-events: none;
 }
 
+.event-more-label {
+  flex: 0 0 22px;
+  min-height: 22px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #a9a2ff;
+  text-align: right;
+  padding: 2px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+  line-height: 22px;
+}
+
+.event-more-label:hover {
+  text-decoration: underline;
+}
+
 .event-item.period-event {
   position: relative;
   z-index: 2;
@@ -2038,6 +2058,17 @@ input[type="color"]::-webkit-color-swatch {
   .event-item.period-event.continues-before,
   .event-item.period-event.continues-after {
     border-radius: 0;
+  }
+
+  .event-more-label {
+    flex-basis: 36px;
+    min-height: 36px;
+    font-size: 1.2rem;
+    text-align: right;
+    padding: 6px 10px;
+    font-weight: 700;
+    color: #a9a2ff;
+    line-height: 24px;
   }
 
   .mobile-fab {

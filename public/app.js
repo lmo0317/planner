@@ -472,7 +472,34 @@ function createCalendarCell(date, isCurrentMonth, isToday = false) {
   
   // Events use stable weekly lanes so multi-day bars stay connected horizontally.
   const weekLanes = getCalendarWeekLanes(date);
+  
+  // Count how many actual events exist on this day across all lanes
+  let dayTodosCount = 0;
   weekLanes.forEach(lane => {
+    const hasTodo = lane.some(item => {
+      const start = item.startDate.substring(0, 10);
+      const end = item.endDate.substring(0, 10);
+      return dateStringStr >= start && dateStringStr <= end;
+    });
+    if (hasTodo) dayTodosCount++;
+  });
+
+  for (let i = 0; i < weekLanes.length; i++) {
+    // If we reach the 5th slot (index 4) and there are more than 4 events on this day:
+    if (i === 4 && dayTodosCount > 4) {
+      const moreEl = document.createElement('div');
+      moreEl.classList.add('event-more-label');
+      moreEl.textContent = `+ ${dayTodosCount - 4}개`;
+      eventContainer.appendChild(moreEl);
+      break;
+    }
+    
+    // Hard limit: never render more than 5 rows total inside the cell
+    if (i >= 5) {
+      break;
+    }
+
+    const lane = weekLanes[i];
     const todo = lane.find(item => {
       const start = item.startDate.substring(0, 10);
       const end = item.endDate.substring(0, 10);
@@ -483,35 +510,37 @@ function createCalendarCell(date, isCurrentMonth, isToday = false) {
       const placeholder = document.createElement('div');
       placeholder.classList.add('event-lane-placeholder');
       eventContainer.appendChild(placeholder);
-      return;
+    } else {
+      const eventStart = todo.startDate.substring(0, 10);
+      const eventEnd = todo.endDate.substring(0, 10);
+      const isPeriodEvent = eventStart < eventEnd;
+      const continuesBefore = isPeriodEvent && dateStringStr > eventStart && date.getDay() !== 0;
+      const continuesAfter = isPeriodEvent && dateStringStr < eventEnd && date.getDay() !== 6;
+      
+      const eventEl = document.createElement('div');
+      eventEl.classList.add('event-item');
+      if (isPeriodEvent) eventEl.classList.add('period-event');
+      if (continuesBefore) eventEl.classList.add('continues-before');
+      if (continuesAfter) eventEl.classList.add('continues-after');
+      if (todo.completed) eventEl.classList.add('completed');
+      
+      eventEl.style.backgroundColor = todo.color;
+      eventEl.style.borderLeftColor = darkenColor(todo.color, -30);
+      
+      eventEl.textContent = continuesBefore ? '\u00a0' : todo.title;
+      eventEl.title = todo.allDay
+        ? `${todo.title}\n(종일)`
+        : `${todo.title}\n(${formatTime(todo.startDate)} ~ ${formatTime(todo.endDate)})`;
+      
+      // Stop event propagation to prevent triggering cell click
+      eventEl.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openModal(todo);
+      });
+      
+      eventContainer.appendChild(eventEl);
     }
-
-    const eventStart = todo.startDate.substring(0, 10);
-    const eventEnd = todo.endDate.substring(0, 10);
-    const isPeriodEvent = eventStart < eventEnd;
-    const continuesBefore = isPeriodEvent && dateStringStr > eventStart && date.getDay() !== 0;
-    const continuesAfter = isPeriodEvent && dateStringStr < eventEnd && date.getDay() !== 6;
-    const eventEl = document.createElement('div');
-    eventEl.classList.add('event-item');
-    if (isPeriodEvent) eventEl.classList.add('period-event');
-    if (continuesBefore) eventEl.classList.add('continues-before');
-    if (continuesAfter) eventEl.classList.add('continues-after');
-    if (todo.completed) eventEl.classList.add('completed');
-    eventEl.style.backgroundColor = todo.color;
-    eventEl.style.borderLeftColor = darkenColor(todo.color, -30);
-    eventEl.textContent = continuesBefore ? '\u00a0' : todo.title;
-    eventEl.title = todo.allDay
-      ? `${todo.title}\n(종일)`
-      : `${todo.title}\n(${formatTime(todo.startDate)} ~ ${formatTime(todo.endDate)})`;
-    
-    // Stop event propagation to prevent triggering cell click
-    eventEl.addEventListener('click', (e) => {
-      e.stopPropagation();
-      openModal(todo);
-    });
-    
-    eventContainer.appendChild(eventEl);
-  });
+  }
   
   // Click cell to add new event
   cell.addEventListener('click', () => {
