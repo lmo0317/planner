@@ -2187,82 +2187,138 @@ function renderDay() {
   headerContainer.appendChild(num);
   dayGrid.appendChild(headerContainer);
   
-  // Render events list
-  const eventsList = document.createElement('div');
-  eventsList.classList.add('day-events-list');
-  
+  // Get filtered events for today
   const filteredTodos = getFilteredTodos();
   const dayTodos = filteredTodos.filter(todo => {
     const start = todo.startDate.substring(0, 10);
     const end = todo.endDate.substring(0, 10);
     return dayStringStr >= start && dayStringStr <= end;
   });
+
+  // Group into all-day and hourly slots
+  const allDayTodos = [];
+  const hourlySlots = Array.from({ length: 24 }, () => []);
   
-  // Sort todos
-  dayTodos.sort((a, b) => {
-    const aAllDay = a.allDay || (a.startDate.substring(0, 10) < a.endDate.substring(0, 10));
-    const bAllDay = b.allDay || (b.startDate.substring(0, 10) < b.endDate.substring(0, 10));
-    if (aAllDay && !bAllDay) return -1;
-    if (!aAllDay && bAllDay) return 1;
-    return a.startDate.localeCompare(b.startDate);
-  });
-  
-  if (dayTodos.length === 0) {
-    eventsList.innerHTML = '<div class="todo-empty-state" style="font-size: 1.15rem; color: var(--text-muted); text-align: center; margin-top: 40px; font-weight: 500;">등록된 일정이 없습니다.</div>';
-  } else {
-    dayTodos.forEach(todo => {
-      const card = document.createElement('div');
-      card.classList.add('day-event-card');
-      if (todo.completed) card.classList.add('completed');
-      
-      card.style.backgroundColor = todo.color;
-      card.style.borderLeftColor = darkenColor(todo.color, -30);
-      
-      const titleEl = document.createElement('div');
-      titleEl.textContent = todo.title;
-      card.appendChild(titleEl);
-      
-      const isAllDay = todo.allDay || (todo.startDate.substring(0, 10) < todo.endDate.substring(0, 10));
-      if (!isAllDay) {
-        const timeEl = document.createElement('div');
-        timeEl.classList.add('day-event-card-time');
-        timeEl.textContent = `${formatTime(todo.startDate)} - ${formatTime(todo.endDate)}`;
-        card.appendChild(timeEl);
-      } else {
-        const timeEl = document.createElement('div');
-        timeEl.classList.add('day-event-card-time');
-        timeEl.textContent = '종일';
-        card.appendChild(timeEl);
+  dayTodos.forEach(todo => {
+    const isAllDay = todo.allDay || (todo.startDate.substring(0, 10) < todo.endDate.substring(0, 10));
+    if (isAllDay) {
+      allDayTodos.push(todo);
+    } else {
+      let startHour = 0;
+      if (todo.startDate.substring(0, 10) === dayStringStr) {
+        startHour = new Date(todo.startDate).getHours();
       }
-      
-      card.addEventListener('click', (e) => {
-        e.stopPropagation();
-        openModal(todo);
-      });
-      
-      eventsList.appendChild(card);
-    });
-  }
-  
-  dayGrid.appendChild(eventsList);
-  
-  // Click day grid empty space to add new task
-  dayGrid.addEventListener('click', (e) => {
-    if (e.target === dayGrid || e.target === headerContainer || e.target === num) {
-      const startIso = `${dayStringStr}T09:00`;
-      const endIso = `${dayStringStr}T10:00`;
-      
-      document.getElementById('task-id').value = '';
-      document.getElementById('task-title').value = '';
-      document.getElementById('task-content').value = '';
-      document.getElementById('task-start').value = startIso;
-      document.getElementById('task-end').value = endIso;
-      document.getElementById('task-category').value = 'general';
-      document.getElementById('task-priority').value = 'medium';
-      document.getElementById('task-allday').checked = false;
-      
-      btnDeleteTask.classList.add('hidden');
-      openModalOverlay.classList.add('open');
+      hourlySlots[startHour].push(todo);
     }
   });
+
+  const timelineGrid = document.createElement('div');
+  timelineGrid.classList.add('day-timeline-grid');
+
+  // Render All Day Row if there are any
+  if (allDayTodos.length > 0) {
+    const allDayRow = document.createElement('div');
+    allDayRow.classList.add('day-all-day-section');
+    
+    const label = document.createElement('div');
+    label.classList.add('day-timeline-time-label');
+    label.textContent = '종일';
+    
+    const content = document.createElement('div');
+    content.classList.add('day-all-day-content');
+    
+    allDayTodos.forEach(todo => {
+      const card = createDayEventCard(todo);
+      content.appendChild(card);
+    });
+    
+    allDayRow.appendChild(label);
+    allDayRow.appendChild(content);
+    timelineGrid.appendChild(allDayRow);
+  }
+
+  // Render 24 Hours
+  for (let hour = 0; hour < 24; hour++) {
+    const row = document.createElement('div');
+    row.classList.add('day-timeline-row');
+    row.setAttribute('data-hour', hour);
+    
+    const label = document.createElement('div');
+    label.classList.add('day-timeline-time-label');
+    label.textContent = `${String(hour).padStart(2, '0')}:00`;
+    
+    const slot = document.createElement('div');
+    slot.classList.add('day-timeline-slot');
+    
+    // Fill slot with events starting at this hour
+    const slotTodos = hourlySlots[hour];
+    slotTodos.forEach(todo => {
+      const card = createDayEventCard(todo);
+      slot.appendChild(card);
+    });
+    
+    // Clicking slot opens modal pre-filled with this hour
+    slot.addEventListener('click', (e) => {
+      if (e.target === slot) {
+        const startHourStr = String(hour).padStart(2, '0');
+        const endHourStr = String((hour + 1) % 24).padStart(2, '0');
+        const startIso = `${dayStringStr}T${startHourStr}:00`;
+        const endIso = `${dayStringStr}T${endHourStr}:00`;
+        
+        openModal(null, startIso, endIso);
+      }
+    });
+    
+    row.appendChild(label);
+    row.appendChild(slot);
+    timelineGrid.appendChild(row);
+  }
+
+  dayGrid.appendChild(timelineGrid);
+
+  // Auto-scroll timeline to current hour or first event
+  setTimeout(() => {
+    const activeHour = dayTodos.length > 0 
+      ? (dayTodos.find(t => !t.allDay)?.startDate ? new Date(dayTodos.find(t => !t.allDay).startDate).getHours() : new Date().getHours())
+      : new Date().getHours();
+    const rowEl = timelineGrid.querySelector(`.day-timeline-row[data-hour="${Math.max(0, activeHour - 1)}"]`);
+    if (rowEl) {
+      rowEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, 100);
+}
+
+// Helper to create a unified day event card
+function createDayEventCard(todo) {
+  const card = document.createElement('div');
+  card.classList.add('day-event-card');
+  if (todo.completed) card.classList.add('completed');
+  
+  card.style.backgroundColor = todo.color;
+  card.style.borderLeftColor = darkenColor(todo.color, -30);
+  
+  const titleEl = document.createElement('div');
+  titleEl.style.fontWeight = '700';
+  titleEl.textContent = todo.title;
+  card.appendChild(titleEl);
+  
+  const isAllDay = todo.allDay || (todo.startDate.substring(0, 10) < todo.endDate.substring(0, 10));
+  if (!isAllDay) {
+    const timeEl = document.createElement('div');
+    timeEl.classList.add('day-event-card-time');
+    timeEl.textContent = `${formatTime(todo.startDate)} - ${formatTime(todo.endDate)}`;
+    card.appendChild(timeEl);
+  } else {
+    const timeEl = document.createElement('div');
+    timeEl.classList.add('day-event-card-time');
+    timeEl.textContent = '종일';
+    card.appendChild(timeEl);
+  }
+  
+  card.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openModal(todo);
+  });
+  
+  return card;
 }
