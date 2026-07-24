@@ -497,8 +497,21 @@ function createCalendarCell(date, isCurrentMonth, isToday = false) {
     if (continuesBefore) eventEl.classList.add('continues-before');
     if (continuesAfter) eventEl.classList.add('continues-after');
     if (todo.completed) eventEl.classList.add('completed');
-    eventEl.style.backgroundColor = todo.color;
-    eventEl.style.borderLeftColor = darkenColor(todo.color, -30);
+    
+    // Naver Calendar style: Solid background for all-day/period events, transparent with left-border for timed events
+    if (todo.allDay || isPeriodEvent) {
+      eventEl.classList.add('all-day-event');
+      eventEl.style.backgroundColor = todo.color;
+      eventEl.style.color = '#ffffff';
+      eventEl.style.borderLeft = 'none';
+    } else {
+      eventEl.classList.add('timed-event');
+      eventEl.style.backgroundColor = 'transparent';
+      eventEl.style.color = todo.color;
+      eventEl.style.borderLeft = `3px solid ${todo.color}`;
+      eventEl.style.paddingLeft = '5px';
+    }
+    
     eventEl.textContent = continuesBefore ? '\u00a0' : todo.title;
     eventEl.title = todo.allDay
       ? `${todo.title}\n(종일)`
