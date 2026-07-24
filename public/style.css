@@ -1878,16 +1878,16 @@ input[type="color"]::-webkit-color-swatch {
     top: 12px;
     bottom: 12px;
     z-index: 45; /* Sit on top of everything */
-    width: 320px;
+    width: 360px; /* ENLARGED: was 320px */
     max-height: calc(100svh - 24px);
     overflow-y: auto;
     background: #1c1c1e;
     border: 1px solid rgba(255,255,255,0.08);
     box-shadow: 0 16px 48px rgba(0,0,0,0.55);
     border-radius: 28px;
-    padding: 24px 20px;
+    padding: 28px 24px;
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    transform: translateX(-360px);
+    transform: translateX(-400px); /* Adjusted for wider sidebar */
     display: flex !important;
     flex-direction: column;
   }
@@ -1906,7 +1906,7 @@ input[type="color"]::-webkit-color-swatch {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 24px;
+    margin-bottom: 28px;
   }
   
   .sidebar-close-btn, .sidebar-settings-btn {
@@ -1914,7 +1914,7 @@ input[type="color"]::-webkit-color-swatch {
     border: 0;
     color: #a9a9ae;
     cursor: pointer;
-    padding: 6px;
+    padding: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1926,18 +1926,18 @@ input[type="color"]::-webkit-color-swatch {
   }
   
   .sidebar-close-btn svg, .sidebar-settings-btn svg {
-    width: 28px !important;
-    height: 28px !important;
+    width: 32px !important; /* ENLARGED: was 28px */
+    height: 32px !important;
   }
 
   .view-modes-section {
-    margin-bottom: 24px;
+    margin-bottom: 30px;
   }
   
   .view-modes-section ul {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 12px;
     padding: 0;
     margin: 0;
     list-style: none;
@@ -1946,19 +1946,19 @@ input[type="color"]::-webkit-color-swatch {
   .view-modes-section li {
     display: flex;
     align-items: center;
-    gap: 16px;
-    padding: 14px 20px;
-    border-radius: 16px;
+    gap: 20px; /* ENLARGED: was 16px */
+    padding: 18px 24px; /* ENLARGED: was 14px 20px */
+    border-radius: 18px;
     color: #c9c9ce;
-    font-size: 1.25rem;
+    font-size: 1.45rem; /* ENLARGED: was 1.25rem */
     font-weight: 600;
     cursor: pointer;
     transition: background 0.15s ease, color 0.15s ease;
   }
   
   .view-modes-section li svg {
-    width: 26px !important;
-    height: 26px !important;
+    width: 30px !important; /* ENLARGED: was 26px */
+    height: 30px !important;
   }
   
   .view-modes-section li.active {
@@ -1969,6 +1969,21 @@ input[type="color"]::-webkit-color-swatch {
   
   .view-modes-section li.active svg {
     color: #a9a2ff;
+  }
+
+  .sidebar-actions-section button {
+    height: 56px !important;
+    font-size: 1.3rem !important;
+    font-weight: 700 !important;
+    border-radius: 16px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 12px !important;
+  }
+  .sidebar-actions-section button svg {
+    width: 24px !important;
+    height: 24px !important;
   }
 
   .accordion-header {

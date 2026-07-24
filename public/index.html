@@ -51,92 +51,21 @@
           </ul>
         </div>
 
-        <div class="accordion-section expanded">
-          <div class="accordion-header">
-            <h3>일정 등록 및 도구</h3>
-            <i data-lucide="chevron-down" class="chevron-icon"></i>
-          </div>
-          <div class="accordion-content">
-            <button id="btn-new-task" class="btn btn-primary" style="width: 100%; margin-bottom: 10px;">
-              <i data-lucide="plus"></i>
-              <span>새 일정 추가</span>
-            </button>
-            <button id="btn-ai-schedule" class="btn btn-ai" style="width: 100%; margin-bottom: 10px;">
-              <i data-lucide="sparkles"></i>
-              <span>AI 일정 추가</span>
-            </button>
-            <button id="btn-import-kidsnote" class="btn btn-secondary" style="width: 100%;">
-              <i data-lucide="school"></i>
-              <span>키즈노트 가져오기</span>
-            </button>
-          </div>
-        </div>
-
-        <div class="accordion-section expanded">
-          <div class="accordion-header">
-            <h3>카테고리 필터</h3>
-            <i data-lucide="chevron-down" class="chevron-icon"></i>
-          </div>
-          <div class="accordion-content">
-            <ul id="category-filters">
-              <li class="active" data-category="all">
-                <span class="color-dot all"></span> <span>전체 일정</span>
-              </li>
-              <li data-category="work">
-                <span class="color-dot work"></span> <span>업무 (Work)</span>
-              </li>
-              <li data-category="personal">
-                <span class="color-dot personal"></span> <span>개인 (Personal)</span>
-              </li>
-              <li data-category="study">
-                <span class="color-dot study"></span> <span>학습 (Study)</span>
-              </li>
-              <li data-category="general">
-                <span class="color-dot general"></span> <span>기타 (General)</span>
-              </li>
-            </ul>
-          </div>
-        </div>
-
-        <div class="accordion-section expanded">
-          <div class="accordion-header">
-            <h3>우선순위 필터</h3>
-            <i data-lucide="chevron-down" class="chevron-icon"></i>
-          </div>
-          <div class="accordion-content">
-            <ul id="priority-filters">
-              <li class="active" data-priority="all">
-                <i data-lucide="sliders"></i> <span>모든 우선순위</span>
-              </li>
-              <li data-priority="high">
-                <i data-lucide="alert-triangle" class="priority-high"></i> <span>높음</span>
-              </li>
-              <li data-priority="medium">
-                <i data-lucide="alert-circle" class="priority-medium"></i> <span>보통</span>
-              </li>
-              <li data-priority="low">
-                <i data-lucide="help-circle" class="priority-low"></i> <span>낮음</span>
-              </li>
-            </ul>
-          </div>
+        <div class="sidebar-actions-section" style="margin-top: 30px;">
+          <button id="btn-new-task" class="btn btn-primary" style="width: 100%; margin-bottom: 14px;">
+            <i data-lucide="plus"></i>
+            <span>새 일정 추가</span>
+          </button>
+          <button id="btn-ai-schedule" class="btn btn-ai" style="width: 100%; margin-bottom: 14px;">
+            <i data-lucide="sparkles"></i>
+            <span>AI 일정 추가</span>
+          </button>
+          <button id="btn-import-kidsnote" class="btn btn-secondary" style="width: 100%;">
+            <i data-lucide="school"></i>
+            <span>키즈노트 가져오기</span>
+          </button>
         </div>
       </nav>
-
-      <!-- Stats Widget -->
-      <div class="accordion-section expanded stats-accordion-section" style="margin-top: auto; padding-top: 15px;">
-        <div class="accordion-header">
-          <h3>오늘의 달성도</h3>
-          <i data-lucide="chevron-down" class="chevron-icon"></i>
-        </div>
-        <div class="accordion-content">
-          <div class="progress-bar-container">
-            <div class="progress-bar" id="today-progress" style="width: 0%"></div>
-          </div>
-          <div class="stats-text" style="margin-top: 8px;">
-            완료 <span id="completed-count">0</span> / 전체 <span id="total-count">0</span>
-          </div>
-        </div>
-      </div>
     </aside>
 
     <!-- Main Content -->

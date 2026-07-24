@@ -930,11 +930,11 @@ function updateStats() {
   const total = todayTasks.length;
   const completed = todayTasks.filter(t => t.completed).length;
   
-  totalCountText.textContent = total;
-  completedCountText.textContent = completed;
+  if (totalCountText) totalCountText.textContent = total;
+  if (completedCountText) completedCountText.textContent = completed;
   
   const progressPercent = total > 0 ? Math.round((completed / total) * 100) : 0;
-  todayProgress.style.width = `${progressPercent}%`;
+  if (todayProgress) todayProgress.style.width = `${progressPercent}%`;
 }
 
 // Modal handling
