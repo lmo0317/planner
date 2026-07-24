@@ -2310,6 +2310,35 @@ input[type="color"]::-webkit-color-swatch {
     align-items: center;
   }
 
+  .mobile-nav-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px; /* spacing between title and arrows */
+  }
+
+  .mobile-nav-arrow-btn {
+    background: transparent;
+    border: 0;
+    color: #e0e0e4;
+    cursor: pointer;
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+  }
+
+  .mobile-nav-arrow-btn:active {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .mobile-nav-arrow-btn svg {
+    width: 32px !important;
+    height: 32px !important;
+  }
+
   .mobile-icon-button {
     width: 40px;
     height: 40px;

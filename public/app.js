@@ -34,6 +34,8 @@ const mobileSearchButton = document.getElementById('mobile-search-button');
 const mobileMoreButton = document.getElementById('mobile-more-button');
 const mobileNavItems = document.querySelectorAll('[data-mobile-view]');
 const mobileCurrentViewTitle = document.getElementById('mobile-current-view-title');
+const mobilePrevBtn = document.getElementById('mobile-prev-btn');
+const mobileNextBtn = document.getElementById('mobile-next-btn');
 
 // Views Panels
 const calendarViewPanel = document.getElementById('calendar-view');
@@ -316,43 +318,13 @@ function setupEventListeners() {
     });
   });
 
-  // Swipe Navigation for Mobile (Month, Week, Day views)
-  let touchStartX = 0;
-  let touchStartY = 0;
-  
-  const mainContent = document.querySelector('.main-content');
-  if (mainContent) {
-    mainContent.addEventListener('touchstart', (e) => {
-      touchStartX = e.changedTouches[0].clientX;
-      touchStartY = e.changedTouches[0].clientY;
-    }, { passive: true });
-    
-    mainContent.addEventListener('touchend', (e) => {
-      // Ignore swipe gestures if modals or drawer menu are active
-      const isModalOpen = document.querySelector('.modal-overlay.open') || 
-                          document.querySelector('#ai-schedule-modal.open') || 
-                          document.querySelector('#kidsnote-modal.open');
-      const isMenuOpen = document.querySelector('.app-container')?.classList.contains('mobile-menu-open');
-      if (isModalOpen || isMenuOpen) return;
-      
-      const touchEndX = e.changedTouches[0].clientX;
-      const touchEndY = e.changedTouches[0].clientY;
-      
-      const diffX = touchEndX - touchStartX;
-      const diffY = touchEndY - touchStartY;
-      
-      // Threshold: horizontal swipe distance > 70px, vertical deviation < 50px (to avoid page scroll conflicts)
-      if (Math.abs(diffX) > 70 && Math.abs(diffY) < 50) {
-        if (diffX > 0) {
-          // Swipe Right -> View Prev
-          navigateCalendarWithAnim(-1);
-        } else {
-          // Swipe Left -> View Next
-          navigateCalendarWithAnim(1);
-        }
-      }
-    }, { passive: true });
-  }
+  // Mobile Topbar Calendar Navigation Arrows
+  mobilePrevBtn?.addEventListener('click', () => {
+    navigateCalendarWithAnim(-1);
+  });
+  mobileNextBtn?.addEventListener('click', () => {
+    navigateCalendarWithAnim(1);
+  });
 }
 
 // Fetch events from server
