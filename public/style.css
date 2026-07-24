@@ -1915,7 +1915,7 @@ input[type="color"]::-webkit-color-swatch {
     border: 0;
     color: #a9a9ae;
     cursor: pointer;
-    padding: 8px;
+    padding: 10px; /* Increased padding */
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1927,8 +1927,8 @@ input[type="color"]::-webkit-color-swatch {
   }
   
   .sidebar-close-btn svg, .sidebar-settings-btn svg {
-    width: 38px !important; /* ENLARGED: was 32px */
-    height: 38px !important;
+    width: 48px !important; /* GIANT: was 38px */
+    height: 48px !important;
   }
 
   .view-modes-section {
@@ -1938,7 +1938,7 @@ input[type="color"]::-webkit-color-swatch {
   .view-modes-section ul {
     display: flex;
     flex-direction: column;
-    gap: 24px; /* Increased spacing */
+    gap: 28px; /* Increased gap */
     padding: 0;
     margin: 0;
     list-style: none;
@@ -1947,19 +1947,19 @@ input[type="color"]::-webkit-color-swatch {
   .view-modes-section li {
     display: flex;
     align-items: center;
-    gap: 32px; /* ENLARGED: was 28px */
-    padding: 30px 38px; /* ENLARGED: was 26px 32px */
-    border-radius: 24px;
+    gap: 36px; /* GIANT: was 32px */
+    padding: 34px 44px; /* GIANT: was 30px 38px */
+    border-radius: 28px; /* Increased radius */
     color: #c9c9ce;
-    font-size: 2.3rem; /* ENLARGED: was 1.95rem */
-    font-weight: 700; /* Bolder */
+    font-size: 2.8rem; /* GIANT: was 2.3rem */
+    font-weight: 700;
     cursor: pointer;
     transition: background 0.15s ease, color 0.15s ease;
   }
   
   .view-modes-section li svg {
-    width: 50px !important; /* ENLARGED: was 42px */
-    height: 50px !important;
+    width: 60px !important; /* GIANT: was 50px */
+    height: 60px !important;
   }
   
   .view-modes-section li.active {
@@ -1973,19 +1973,19 @@ input[type="color"]::-webkit-color-swatch {
   }
 
   .sidebar-actions-section button {
-    height: 68px !important; /* ENLARGED: was 56px */
-    font-size: 1.5rem !important; /* ENLARGED: was 1.3rem */
+    height: 80px !important; /* GIANT: was 68px */
+    font-size: 1.85rem !important; /* GIANT: was 1.5rem */
     font-weight: 700 !important;
-    border-radius: 18px !important;
+    border-radius: 20px !important;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
-    gap: 16px !important;
-    margin-bottom: 18px !important; /* Increased spacing */
+    gap: 20px !important;
+    margin-bottom: 24px !important; /* Increased spacing */
   }
   .sidebar-actions-section button svg {
-    width: 30px !important; /* ENLARGED: was 24px */
-    height: 30px !important;
+    width: 38px !important; /* GIANT: was 30px */
+    height: 38px !important;
   }
 
   .accordion-header {
