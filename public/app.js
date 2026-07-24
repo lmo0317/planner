@@ -217,6 +217,8 @@ function setupEventListeners() {
       el.classList.add('active');
       currentView = el.dataset.view;
       switchView();
+      // Auto-close mobile menu drawer on selection
+      document.querySelector('.app-container')?.classList.remove('mobile-menu-open');
     });
   });
 
