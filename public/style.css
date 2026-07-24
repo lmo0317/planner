@@ -1565,7 +1565,7 @@ input[type="color"]::-webkit-color-swatch {
 }
 
 /* Mobile-first calendar layout */
-@media (max-width: 1024px) {
+@media (max-width: 1024px), (orientation: portrait) {
   body {
     min-height: 100svh;
     overflow-x: hidden;
@@ -1831,7 +1831,7 @@ input[type="color"]::-webkit-color-swatch {
   display: none;
 }
 
-@media (max-width: 1024px) {
+@media (max-width: 1024px), (orientation: portrait) {
   body {
     background: #171719;
   }
