@@ -133,7 +133,61 @@ function toggleTheme() {
 function setupEventListeners() {
   themeToggle.addEventListener('click', toggleTheme);
 
-  mobileFab?.addEventListener('click', () => openModal());
+  // Mobile Today Button Click
+  const mobileTodayBtn = document.getElementById('mobile-today-btn');
+  mobileTodayBtn?.addEventListener('click', () => {
+    currentViewDate = new Date();
+    render();
+  });
+
+  // Mobile FAB overlay toggle
+  const mobileFabOverlay = document.getElementById('mobile-fab-overlay');
+  mobileFab?.addEventListener('click', () => {
+    if (mobileFabOverlay) {
+      const isHidden = mobileFabOverlay.classList.contains('hidden');
+      if (isHidden) {
+        mobileFabOverlay.classList.remove('hidden');
+        mobileFab.style.transform = 'rotate(45deg)';
+        mobileFab.style.background = '#e040fb'; // Pinkish close state
+      } else {
+        mobileFabOverlay.classList.add('hidden');
+        mobileFab.style.transform = '';
+        mobileFab.style.background = '';
+      }
+    }
+  });
+
+  // Close overlay when clicking background
+  mobileFabOverlay?.addEventListener('click', (e) => {
+    if (e.target === mobileFabOverlay) {
+      mobileFabOverlay.classList.add('hidden');
+      mobileFab.style.transform = '';
+      mobileFab.style.background = '';
+    }
+  });
+
+  // Mobile FAB overlay menu item actions
+  const mobileMenuAiBtn = document.getElementById('mobile-menu-ai-btn');
+  mobileMenuAiBtn?.addEventListener('click', () => {
+    mobileFabOverlay.classList.add('hidden');
+    mobileFab.style.transform = '';
+    mobileFab.style.background = '';
+    openAiScheduleModal();
+  });
+
+  document.querySelectorAll('.mobile-fab-menu-item').forEach(item => {
+    item.addEventListener('click', () => {
+      mobileFabOverlay.classList.add('hidden');
+      mobileFab.style.transform = '';
+      mobileFab.style.background = '';
+      const action = item.dataset.action;
+      if (action === 'event' || action === 'todo') {
+        openModal();
+      } else {
+        showToast(`${item.querySelector('span').textContent} 기능은 준비 중입니다.`, 'info');
+      }
+    });
+  });
   mobileMenuButton?.addEventListener('click', () => {
     document.querySelector('.app-container')?.classList.toggle('mobile-menu-open');
   });
@@ -294,19 +348,20 @@ function getFilteredTodos() {
   });
 }
 
-// Main Render router
 function render() {
   if (currentView === 'month') {
     renderCalendar();
   } else {
     renderList();
+    const mobileTodayBtn = document.getElementById('mobile-today-btn');
+    if (mobileTodayBtn) mobileTodayBtn.classList.add('hidden');
   }
 }
-
 // Render Calendar Month View
 function renderCalendar() {
   calendarGrid.innerHTML = '';
   calendarWeekLaneCache = new Map();
+  const today = new Date();
   
   const year = currentViewDate.getFullYear();
   const month = currentViewDate.getMonth();
@@ -317,7 +372,26 @@ function renderCalendar() {
   
   // Format Month Title
   currentViewTitle.textContent = `${year}년 ${month + 1}월`;
-  if (mobileCurrentViewTitle) mobileCurrentViewTitle.textContent = `${year}년 ${month + 1}월`;
+  if (mobileCurrentViewTitle) {
+    mobileCurrentViewTitle.innerHTML = `${year}. ${month + 1}. <i data-lucide="chevron-down" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle; margin-left: 2px;"></i>`;
+  }
+  
+  const mobileTodayBtn = document.getElementById('mobile-today-btn');
+  if (mobileTodayBtn) {
+    const isCurrentMonthShown = (year === today.getFullYear() && month === today.getMonth());
+    if (isCurrentMonthShown) {
+      mobileTodayBtn.classList.add('hidden');
+    } else {
+      mobileTodayBtn.classList.remove('hidden');
+      const isFuture = currentViewDate > today;
+      if (isFuture) {
+        mobileTodayBtn.innerHTML = '<i data-lucide="chevron-left"></i><span>오늘</span>';
+      } else {
+        mobileTodayBtn.innerHTML = '<span>오늘</span><i data-lucide="chevron-right"></i>';
+      }
+      lucide.createIcons();
+    }
+  }
   
   const firstDay = new Date(year, month, 1);
   const lastDay = new Date(year, month + 1, 0);
@@ -326,8 +400,6 @@ function renderCalendar() {
   const startDayOfWeek = firstDay.getDay(); // Day of week of first date
   const totalDays = lastDay.getDate();
   const prevTotalDays = prevLastDay.getDate();
-  
-  const today = new Date();
   
   // 42 cells grid (6 weeks)
   let cellCount = 0;
@@ -1272,7 +1344,13 @@ async function saveKidsNoteSchedules() {
 function setupAiScheduleEventListeners() {
   btnAiSchedule.addEventListener('click', openAiScheduleModal);
   closeAiScheduleModal.addEventListener('click', closeAiSchedule);
-  btnCancelAiSchedule.addEventListener('click', closeAiSchedule);
+  btnCancelAiSchedule.addEventListener('click', () => {
+    if (btnCancelAiSchedule.textContent === '다시 하기') {
+      showAiScheduleInput();
+    } else {
+      closeAiSchedule();
+    }
+  });
   btnAnalyzeAiSchedule.addEventListener('click', analyzeAiScheduleText);
   btnSaveAiSchedules.addEventListener('click', saveAiSchedules);
   btnAiScheduleBack.addEventListener('click', showAiScheduleInput);
@@ -1306,6 +1384,15 @@ function resetAiScheduleModal() {
   aiScheduleList.innerHTML = '';
   aiScheduleCount.textContent = '0';
   aiSelectedCount.textContent = '0';
+  
+  const aiScheduleDisplayTitle = document.getElementById('ai-schedule-display-title');
+  const aiMicBtn = document.querySelector('.ai-mic-btn');
+  aiScheduleText.classList.remove('hidden');
+  if (aiScheduleDisplayTitle) aiScheduleDisplayTitle.classList.add('hidden');
+  if (aiMicBtn) aiMicBtn.classList.remove('hidden');
+  
+  btnCancelAiSchedule.textContent = '닫기';
+
   aiScheduleInputPanel.classList.remove('hidden');
   aiScheduleLoading.classList.add('hidden');
   aiSchedulePreview.classList.add('hidden');
@@ -1324,6 +1411,14 @@ function showAiScheduleInput() {
   btnAnalyzeAiSchedule.classList.remove('hidden');
   btnAnalyzeAiSchedule.disabled = false;
   btnSaveAiSchedules.classList.add('hidden');
+  
+  const aiScheduleDisplayTitle = document.getElementById('ai-schedule-display-title');
+  const aiMicBtn = document.querySelector('.ai-mic-btn');
+  aiScheduleText.classList.remove('hidden');
+  if (aiScheduleDisplayTitle) aiScheduleDisplayTitle.classList.add('hidden');
+  if (aiMicBtn) aiMicBtn.classList.remove('hidden');
+  
+  btnCancelAiSchedule.textContent = '닫기';
   aiScheduleText.focus();
 }
 
@@ -1338,6 +1433,15 @@ async function analyzeAiScheduleText() {
   aiSchedulePreview.classList.add('hidden');
   aiScheduleLoading.classList.remove('hidden');
   btnAnalyzeAiSchedule.disabled = true;
+
+  const aiScheduleDisplayTitle = document.getElementById('ai-schedule-display-title');
+  const aiMicBtn = document.querySelector('.ai-mic-btn');
+  aiScheduleText.classList.add('hidden');
+  if (aiScheduleDisplayTitle) {
+    aiScheduleDisplayTitle.textContent = text;
+    aiScheduleDisplayTitle.classList.remove('hidden');
+  }
+  if (aiMicBtn) aiMicBtn.classList.add('hidden');
 
   try {
     const response = await fetch('/api/todos/parse-natural-language', {
@@ -1378,6 +1482,11 @@ async function analyzeAiScheduleText() {
     console.error(error);
     showToast(error.message, 'danger');
     aiScheduleLoading.classList.add('hidden');
+    
+    aiScheduleText.classList.remove('hidden');
+    if (aiScheduleDisplayTitle) aiScheduleDisplayTitle.classList.add('hidden');
+    if (aiMicBtn) aiMicBtn.classList.remove('hidden');
+    
     aiScheduleInputPanel.classList.remove('hidden');
     btnAnalyzeAiSchedule.disabled = false;
   }
@@ -1393,6 +1502,12 @@ function renderAiScheduleCandidates() {
     return;
   }
 
+  // Change cancel button to "다시 하기" on mobile
+  if (window.innerWidth <= 768) {
+    const btnCancelAiSchedule = document.getElementById('btn-cancel-ai-schedule');
+    if (btnCancelAiSchedule) btnCancelAiSchedule.textContent = '다시 하기';
+  }
+
   const categoryMap = { general: '기타', work: '업무', personal: '개인', study: '학습' };
   const priorityMap = { high: '높음', medium: '보통', low: '낮음' };
 
@@ -1400,81 +1515,239 @@ function renderAiScheduleCandidates() {
     const card = document.createElement('div');
     card.classList.add('extracted-card');
     card.dataset.index = index;
-    card.style.borderLeft = `4px solid ${event.color || '#4f46e5'}`;
 
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.checked = true;
-    checkbox.classList.add('extracted-card-checkbox', 'ai-schedule-checkbox');
-    checkbox.addEventListener('change', () => {
-      card.classList.toggle('disabled', !checkbox.checked);
-      updateAiSelectedCount();
-    });
+    // Check if on mobile
+    if (window.innerWidth <= 768) {
+      if (event.isEditing) {
+        // Render Edit Form inside card
+        const form = document.createElement('div');
+        form.classList.add('card-edit-form');
+        
+        const titleInput = document.createElement('input');
+        titleInput.type = 'text';
+        titleInput.value = event.title;
+        titleInput.placeholder = '일정 제목';
+        
+        const startInput = document.createElement('input');
+        startInput.type = 'datetime-local';
+        startInput.value = toDatetimeLocalString(event.startDate);
+        
+        const endInput = document.createElement('input');
+        endInput.type = 'datetime-local';
+        endInput.value = toDatetimeLocalString(event.endDate);
+        
+        const actionsRow = document.createElement('div');
+        actionsRow.style.display = 'flex';
+        actionsRow.style.gap = '8px';
+        actionsRow.style.marginTop = '4px';
+        
+        const btnSave = document.createElement('button');
+        btnSave.type = 'button';
+        btnSave.className = 'btn btn-success';
+        btnSave.style.padding = '6px 12px';
+        btnSave.style.fontSize = '0.85rem';
+        btnSave.innerHTML = '<i data-lucide="check"></i> 저장';
+        btnSave.addEventListener('click', () => {
+          if (titleInput.value.trim()) {
+            event.title = titleInput.value.trim();
+            event.startDate = new Date(startInput.value).toISOString();
+            event.endDate = new Date(endInput.value).toISOString();
+            event.isEditing = false;
+            renderAiScheduleCandidates();
+          } else {
+            showToast('일정 제목을 입력하세요.', 'danger');
+          }
+        });
+        
+        const btnCancel = document.createElement('button');
+        btnCancel.type = 'button';
+        btnCancel.className = 'btn btn-secondary';
+        btnCancel.style.padding = '6px 12px';
+        btnCancel.style.fontSize = '0.85rem';
+        btnCancel.innerHTML = '<i data-lucide="x"></i> 취소';
+        btnCancel.addEventListener('click', () => {
+          event.isEditing = false;
+          renderAiScheduleCandidates();
+        });
+        
+        actionsRow.appendChild(btnSave);
+        actionsRow.appendChild(btnCancel);
+        
+        form.appendChild(titleInput);
+        form.appendChild(startInput);
+        form.appendChild(endInput);
+        form.appendChild(actionsRow);
+        card.appendChild(form);
+      } else {
+        // Render Naver Calendar Premium Card Layout
+        const startParsed = formatCustomTime(event.startDate);
+        const endParsed = formatCustomTime(event.endDate);
+        
+        // Left Column (Time)
+        const timeCol = document.createElement('div');
+        timeCol.classList.add('card-time-col');
+        if (event.allDay) {
+          timeCol.classList.add('all-day');
+          timeCol.innerHTML = '<div class="time-all-day">종일</div>';
+        } else {
+          timeCol.innerHTML = `
+            <div class="time-start">${startParsed.time}</div>
+            <div class="time-end">${endParsed.timeOnly}</div>
+          `;
+        }
+        
+        // Vertical Divider
+        const divider = document.createElement('div');
+        divider.classList.add('card-divider');
+        
+        // Right Column
+        const rightCol = document.createElement('div');
+        rightCol.classList.add('card-right-col');
+        
+        const titleEl = document.createElement('div');
+        titleEl.classList.add('event-card-title');
+        titleEl.textContent = event.title;
+        
+        const dateEl = document.createElement('div');
+        dateEl.classList.add('event-card-date');
+        dateEl.textContent = formatCustomDate(event.startDate);
+        
+        const calSelect = document.createElement('div');
+        calSelect.classList.add('calendar-select');
+        calSelect.innerHTML = `<span>[기본] 내 캘린더</span> <i data-lucide="chevron-down"></i>`;
+        
+        rightCol.appendChild(titleEl);
+        rightCol.appendChild(dateEl);
+        rightCol.appendChild(calSelect);
+        
+        // Edit Pencil Icon
+        const editBtn = document.createElement('button');
+        editBtn.type = 'button';
+        editBtn.className = 'card-edit-btn';
+        editBtn.innerHTML = '<i data-lucide="pencil"></i>';
+        editBtn.addEventListener('click', () => {
+          event.isEditing = true;
+          renderAiScheduleCandidates();
+        });
+        
+        card.appendChild(timeCol);
+        card.appendChild(divider);
+        card.appendChild(rightCol);
+        card.appendChild(editBtn);
+      }
+    } else {
+      // Desktop: Keep original card structure with inputs and badges
+      card.style.borderLeft = `4px solid ${event.color || '#4f46e5'}`;
 
-    const details = document.createElement('div');
-    details.classList.add('extracted-card-details');
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = true;
+      checkbox.classList.add('extracted-card-checkbox', 'ai-schedule-checkbox');
+      checkbox.addEventListener('change', () => {
+        card.classList.toggle('disabled', !checkbox.checked);
+        updateAiSelectedCount();
+      });
 
-    const titleInput = document.createElement('input');
-    titleInput.type = 'text';
-    titleInput.classList.add('extracted-card-title');
-    titleInput.value = event.title;
-    titleInput.addEventListener('input', e => {
-      aiScheduleEventsState[index].title = e.target.value;
-    });
-    details.appendChild(titleInput);
+      const details = document.createElement('div');
+      details.classList.add('extracted-card-details');
 
-    const dates = document.createElement('div');
-    dates.classList.add('ai-schedule-dates');
-    dates.appendChild(createAiDateField('시작', event.startDate, value => {
-      aiScheduleEventsState[index].startDate = value;
-    }, event.allDay, false));
-    dates.appendChild(createAiDateField('종료', event.endDate, value => {
-      aiScheduleEventsState[index].endDate = value;
-    }, event.allDay, true));
-    details.appendChild(dates);
+      const titleInput = document.createElement('input');
+      titleInput.type = 'text';
+      titleInput.classList.add('extracted-card-title');
+      titleInput.value = event.title;
+      titleInput.addEventListener('input', e => {
+        aiScheduleEventsState[index].title = e.target.value;
+      });
+      details.appendChild(titleInput);
 
-    if (event.dateReason) {
-      const reason = document.createElement('div');
-      reason.classList.add('extracted-card-reason');
-      reason.textContent = `날짜 판단: ${event.dateReason}`;
-      details.appendChild(reason);
+      const dates = document.createElement('div');
+      dates.classList.add('ai-schedule-dates');
+      dates.appendChild(createAiDateField('시작', event.startDate, value => {
+        aiScheduleEventsState[index].startDate = value;
+      }, event.allDay, false));
+      dates.appendChild(createAiDateField('종료', event.endDate, value => {
+        aiScheduleEventsState[index].endDate = value;
+      }, event.allDay, true));
+      details.appendChild(dates);
+
+      if (event.dateReason) {
+        const reason = document.createElement('div');
+        reason.classList.add('extracted-card-reason');
+        reason.textContent = `날짜 판단: ${event.dateReason}`;
+        details.appendChild(reason);
+      }
+
+      const meta = document.createElement('div');
+      meta.classList.add('extracted-card-meta');
+
+      const categoryBadge = document.createElement('span');
+      categoryBadge.classList.add('badge', 'badge-category');
+      categoryBadge.textContent = categoryMap[event.category] || event.category;
+      meta.appendChild(categoryBadge);
+
+      if (event.allDay) {
+        const allDayBadge = document.createElement('span');
+        allDayBadge.classList.add('badge', 'badge-all-day');
+        allDayBadge.textContent = '종일';
+        meta.appendChild(allDayBadge);
+      }
+
+      const priorityBadge = document.createElement('span');
+      priorityBadge.classList.add('badge', 'badge-priority', event.priority);
+      priorityBadge.textContent = priorityMap[event.priority] || event.priority;
+      meta.appendChild(priorityBadge);
+
+      if (Number.isFinite(event.confidence)) {
+        const confidenceBadge = document.createElement('span');
+        confidenceBadge.classList.add('badge', 'badge-confidence');
+        confidenceBadge.textContent = `신뢰도 ${Math.round(event.confidence * 100)}%`;
+        meta.appendChild(confidenceBadge);
+      }
+      details.appendChild(meta);
+
+      card.appendChild(checkbox);
+      card.appendChild(details);
     }
 
-    const meta = document.createElement('div');
-    meta.classList.add('extracted-card-meta');
-
-    const categoryBadge = document.createElement('span');
-    categoryBadge.classList.add('badge', 'badge-category');
-    categoryBadge.textContent = categoryMap[event.category] || event.category;
-    meta.appendChild(categoryBadge);
-
-    if (event.allDay) {
-      const allDayBadge = document.createElement('span');
-      allDayBadge.classList.add('badge', 'badge-all-day');
-      allDayBadge.textContent = '종일';
-      meta.appendChild(allDayBadge);
-    }
-
-    const priorityBadge = document.createElement('span');
-    priorityBadge.classList.add('badge', 'badge-priority', event.priority);
-    priorityBadge.textContent = priorityMap[event.priority] || event.priority;
-    meta.appendChild(priorityBadge);
-
-    if (Number.isFinite(event.confidence)) {
-      const confidenceBadge = document.createElement('span');
-      confidenceBadge.classList.add('badge', 'badge-confidence');
-      confidenceBadge.textContent = `신뢰도 ${Math.round(event.confidence * 100)}%`;
-      meta.appendChild(confidenceBadge);
-    }
-    details.appendChild(meta);
-
-    card.appendChild(checkbox);
-    card.appendChild(details);
     aiScheduleList.appendChild(card);
   });
 
   updateAiSelectedCount();
   lucide.createIcons();
+}
+
+function formatCustomDate(dateStr) {
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  const yy = String(d.getFullYear()).slice(-2);
+  const m = d.getMonth() + 1;
+  const date = d.getDate();
+  const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+  const day = dayNames[d.getDay()];
+  return `${yy}. ${m}. ${date}.(${day})`;
+}
+
+function formatCustomTime(dateStr) {
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return { ampm: '', time: '', timeOnly: '' };
+  let hours = d.getHours();
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  const ampm = hours >= 12 ? '오후' : '오전';
+  hours = hours % 12;
+  hours = hours ? hours : 12;
+  return {
+    ampm,
+    time: `${ampm} ${String(hours).padStart(2, '0')}:${minutes}`,
+    timeOnly: `${String(hours).padStart(2, '0')}:${minutes}`
+  };
+}
+
+function toDatetimeLocalString(dateStr) {
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '';
+  const offset = d.getTimezoneOffset();
+  const localDate = new Date(d.getTime() - offset * 60 * 1000);
+  return localDate.toISOString().slice(0, 16);
 }
 
 function createAiDateField(labelText, value, onChange, allDay = false, isEnd = false) {
