@@ -23,95 +23,118 @@
   <div class="app-container">
     <!-- Sidebar -->
     <aside class="sidebar">
-      <div class="brand">
-        <div class="logo-icon">
-          <i data-lucide="calendar-check-2"></i>
-        </div>
-        <h1>NEO Planner</h1>
+      <div class="sidebar-header">
+        <button class="sidebar-close-btn" id="sidebar-close-btn" aria-label="메뉴 닫기">
+          <i data-lucide="menu"></i>
+        </button>
+        <button class="sidebar-settings-btn" id="sidebar-settings-btn" aria-label="테마 전환">
+          <i data-lucide="settings"></i>
+        </button>
       </div>
-
-      <h2 class="mobile-tools-title">추가 기능 및 필터</h2>
-
-      <button id="btn-new-task" class="btn btn-primary">
-        <i data-lucide="plus"></i>
-        <span>새 일정 추가</span>
-      </button>
-
-      <button id="btn-ai-schedule" class="btn btn-ai" style="margin-top: -12px;">
-        <i data-lucide="sparkles"></i>
-        <span>AI 일정 추가</span>
-      </button>
-
-      <button id="btn-import-kidsnote" class="btn btn-secondary" style="margin-top: -12px;">
-        <i data-lucide="school"></i>
-        <span>키즈노트 일정 가져오기</span>
-      </button>
 
       <!-- Navigation & Filters -->
       <nav class="nav-menu">
-        <div class="menu-section">
-          <h3>보기 방식</h3>
+        <div class="menu-section view-modes-section">
           <ul>
             <li class="active" data-view="month">
-              <i data-lucide="calendar"></i> <span>월간 달력</span>
+              <i data-lucide="calendar"></i> <span>월</span>
             </li>
             <li data-view="week">
-              <i data-lucide="calendar-days"></i> <span>주간 달력</span>
+              <i data-lucide="calendar-days"></i> <span>주</span>
+            </li>
+            <li data-view="day">
+              <i data-lucide="calendar-range"></i> <span>일</span>
             </li>
             <li data-view="list">
-              <i data-lucide="list-todo"></i> <span>목록 보기</span>
+              <i data-lucide="list-todo"></i> <span>일정</span>
             </li>
           </ul>
         </div>
 
-        <div class="menu-section">
-          <h3>카테고리 필터</h3>
-          <ul id="category-filters">
-            <li class="active" data-category="all">
-              <span class="color-dot all"></span> <span>전체 일정</span>
-            </li>
-            <li data-category="work">
-              <span class="color-dot work"></span> <span>업무 (Work)</span>
-            </li>
-            <li data-category="personal">
-              <span class="color-dot personal"></span> <span>개인 (Personal)</span>
-            </li>
-            <li data-category="study">
-              <span class="color-dot study"></span> <span>학습 (Study)</span>
-            </li>
-            <li data-category="general">
-              <span class="color-dot general"></span> <span>기타 (General)</span>
-            </li>
-          </ul>
+        <div class="accordion-section expanded">
+          <div class="accordion-header">
+            <h3>일정 등록 및 도구</h3>
+            <i data-lucide="chevron-down" class="chevron-icon"></i>
+          </div>
+          <div class="accordion-content">
+            <button id="btn-new-task" class="btn btn-primary" style="width: 100%; margin-bottom: 10px;">
+              <i data-lucide="plus"></i>
+              <span>새 일정 추가</span>
+            </button>
+            <button id="btn-ai-schedule" class="btn btn-ai" style="width: 100%; margin-bottom: 10px;">
+              <i data-lucide="sparkles"></i>
+              <span>AI 일정 추가</span>
+            </button>
+            <button id="btn-import-kidsnote" class="btn btn-secondary" style="width: 100%;">
+              <i data-lucide="school"></i>
+              <span>키즈노트 가져오기</span>
+            </button>
+          </div>
         </div>
 
-        <div class="menu-section">
-          <h3>우선순위 필터</h3>
-          <ul id="priority-filters">
-            <li class="active" data-priority="all">
-              <i data-lucide="sliders"></i> <span>모든 우선순위</span>
-            </li>
-            <li data-priority="high">
-              <i data-lucide="alert-triangle" class="priority-high"></i> <span>높음</span>
-            </li>
-            <li data-priority="medium">
-              <i data-lucide="alert-circle" class="priority-medium"></i> <span>보통</span>
-            </li>
-            <li data-priority="low">
-              <i data-lucide="help-circle" class="priority-low"></i> <span>낮음</span>
-            </li>
-          </ul>
+        <div class="accordion-section expanded">
+          <div class="accordion-header">
+            <h3>카테고리 필터</h3>
+            <i data-lucide="chevron-down" class="chevron-icon"></i>
+          </div>
+          <div class="accordion-content">
+            <ul id="category-filters">
+              <li class="active" data-category="all">
+                <span class="color-dot all"></span> <span>전체 일정</span>
+              </li>
+              <li data-category="work">
+                <span class="color-dot work"></span> <span>업무 (Work)</span>
+              </li>
+              <li data-category="personal">
+                <span class="color-dot personal"></span> <span>개인 (Personal)</span>
+              </li>
+              <li data-category="study">
+                <span class="color-dot study"></span> <span>학습 (Study)</span>
+              </li>
+              <li data-category="general">
+                <span class="color-dot general"></span> <span>기타 (General)</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="accordion-section expanded">
+          <div class="accordion-header">
+            <h3>우선순위 필터</h3>
+            <i data-lucide="chevron-down" class="chevron-icon"></i>
+          </div>
+          <div class="accordion-content">
+            <ul id="priority-filters">
+              <li class="active" data-priority="all">
+                <i data-lucide="sliders"></i> <span>모든 우선순위</span>
+              </li>
+              <li data-priority="high">
+                <i data-lucide="alert-triangle" class="priority-high"></i> <span>높음</span>
+              </li>
+              <li data-priority="medium">
+                <i data-lucide="alert-circle" class="priority-medium"></i> <span>보통</span>
+              </li>
+              <li data-priority="low">
+                <i data-lucide="help-circle" class="priority-low"></i> <span>낮음</span>
+              </li>
+            </ul>
+          </div>
         </div>
       </nav>
 
       <!-- Stats Widget -->
-      <div class="stats-widget">
-        <h4>오늘의 달성도</h4>
-        <div class="progress-bar-container">
-          <div class="progress-bar" id="today-progress" style="width: 0%"></div>
+      <div class="accordion-section expanded stats-accordion-section" style="margin-top: auto; padding-top: 15px;">
+        <div class="accordion-header">
+          <h3>오늘의 달성도</h3>
+          <i data-lucide="chevron-down" class="chevron-icon"></i>
         </div>
-        <div class="stats-text">
-          <span id="completed-count">0</span> / <span id="total-count">0</span> 완료됨
+        <div class="accordion-content">
+          <div class="progress-bar-container">
+            <div class="progress-bar" id="today-progress" style="width: 0%"></div>
+          </div>
+          <div class="stats-text" style="margin-top: 8px;">
+            완료 <span id="completed-count">0</span> / 전체 <span id="total-count">0</span>
+          </div>
         </div>
       </div>
     </aside>
@@ -167,6 +190,16 @@
         </div>
         <!-- Week Grid -->
         <div id="week-grid" class="week-grid"></div>
+      </div>
+
+      <!-- Day View Wrapper -->
+      <div id="day-view" class="view-panel">
+        <!-- Day Header -->
+        <div class="calendar-days">
+          <div id="day-view-label" style="grid-column: span 7; text-align: center; color: var(--text-primary); font-weight: 700; font-size: 1.15rem;">오늘의 일정</div>
+        </div>
+        <!-- Day Grid/List -->
+        <div id="day-grid" class="day-grid"></div>
       </div>
 
       <!-- List View Wrapper -->

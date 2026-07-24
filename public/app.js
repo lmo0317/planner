@@ -37,8 +37,12 @@ const mobileCurrentViewTitle = document.getElementById('mobile-current-view-titl
 // Views Panels
 const calendarViewPanel = document.getElementById('calendar-view');
 const weekViewPanel = document.getElementById('week-view');
+const dayViewPanel = document.getElementById('day-view');
 const listViewPanel = document.getElementById('list-view');
 const weekGrid = document.getElementById('week-grid');
+const dayGrid = document.getElementById('day-grid');
+const sidebarCloseBtn = document.getElementById('sidebar-close-btn');
+const sidebarSettingsBtn = document.getElementById('sidebar-settings-btn');
 
 // List view containers
 const pendingList = document.getElementById('pending-list');
@@ -134,6 +138,22 @@ function toggleTheme() {
 // Event Listeners Setup
 function setupEventListeners() {
   themeToggle.addEventListener('click', toggleTheme);
+
+  // Accordion toggle listeners
+  document.querySelectorAll('.accordion-header').forEach(header => {
+    header.addEventListener('click', () => {
+      header.parentElement.classList.toggle('expanded');
+    });
+  });
+
+  // Sidebar Close and Theme/Settings listeners
+  sidebarCloseBtn?.addEventListener('click', () => {
+    document.querySelector('.app-container')?.classList.remove('mobile-menu-open');
+  });
+
+  sidebarSettingsBtn?.addEventListener('click', () => {
+    themeToggle?.click();
+  });
 
   // Mobile Today Button Click
   const mobileTodayBtn = document.getElementById('mobile-today-btn');
@@ -309,23 +329,33 @@ async function fetchTodos() {
   }
 }
 
-// View switcher (Calendar / Week / List)
+// View switcher (Calendar / Week / Day / List)
 function switchView() {
   if (currentView === 'month') {
     calendarViewPanel.classList.add('active');
     weekViewPanel.classList.remove('active');
+    dayViewPanel.classList.remove('active');
     listViewPanel.classList.remove('active');
     document.querySelector('.nav-buttons').classList.remove('hidden');
     renderCalendar();
   } else if (currentView === 'week') {
     calendarViewPanel.classList.remove('active');
     weekViewPanel.classList.add('active');
+    dayViewPanel.classList.remove('active');
     listViewPanel.classList.remove('active');
     document.querySelector('.nav-buttons').classList.remove('hidden');
     renderWeek();
+  } else if (currentView === 'day') {
+    calendarViewPanel.classList.remove('active');
+    weekViewPanel.classList.remove('active');
+    dayViewPanel.classList.add('active');
+    listViewPanel.classList.remove('active');
+    document.querySelector('.nav-buttons').classList.remove('hidden');
+    renderDay();
   } else {
     calendarViewPanel.classList.remove('active');
     weekViewPanel.classList.remove('active');
+    dayViewPanel.classList.remove('active');
     listViewPanel.classList.add('active');
     document.querySelector('.nav-buttons').classList.add('hidden');
     renderList();
@@ -336,6 +366,8 @@ function switchView() {
 function navigateCalendar(direction) {
   if (currentView === 'week') {
     currentViewDate.setDate(currentViewDate.getDate() + (direction * 7));
+  } else if (currentView === 'day') {
+    currentViewDate.setDate(currentViewDate.getDate() + direction);
   } else {
     const currentMonth = currentViewDate.getMonth();
     currentViewDate.setMonth(currentMonth + direction);
@@ -369,6 +401,8 @@ function render() {
     renderCalendar();
   } else if (currentView === 'week') {
     renderWeek();
+  } else if (currentView === 'day') {
+    renderDay();
   } else {
     renderList();
     const mobileTodayBtn = document.getElementById('mobile-today-btn');
@@ -2043,4 +2077,133 @@ function getStartOfWeek(d) {
   const day = date.getDay();
   const diff = date.getDate() - day;
   return new Date(date.setDate(diff));
+}
+
+function renderDay() {
+  dayGrid.innerHTML = '';
+  
+  const today = new Date();
+  const date = currentViewDate;
+  const dayStringStr = date.toISOString().slice(0, 10);
+  
+  const isToday = date.toDateString() === today.toDateString();
+  
+  // Update Topbar Title
+  const year = date.getFullYear();
+  const month = date.getMonth() + 1;
+  const dayVal = date.getDate();
+  const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+  const dayOfWeek = dayNames[date.getDay()];
+  
+  currentViewTitle.textContent = `${year}년 ${month}월 ${dayVal}일 (${dayOfWeek})`;
+  if (mobileCurrentViewTitle) {
+    mobileCurrentViewTitle.innerHTML = `${year}. ${month}. ${dayVal}. (${dayOfWeek}) <i data-lucide="chevron-down" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle; margin-left: 2px;"></i>`;
+  }
+  
+  // Today button logic
+  const mobileTodayBtn = document.getElementById('mobile-today-btn');
+  if (mobileTodayBtn) {
+    if (isToday) {
+      mobileTodayBtn.classList.add('hidden');
+    } else {
+      mobileTodayBtn.classList.remove('hidden');
+      const isFuture = date > today;
+      if (isFuture) {
+        mobileTodayBtn.innerHTML = '<i data-lucide="chevron-left"></i><span>오늘</span>';
+      } else {
+        mobileTodayBtn.innerHTML = '<span>오늘</span><i data-lucide="chevron-right"></i>';
+      }
+      lucide.createIcons();
+    }
+  }
+  
+  // Render large number header inside day view
+  const headerContainer = document.createElement('div');
+  headerContainer.classList.add('day-header-container');
+  
+  const num = document.createElement('div');
+  num.classList.add('day-number-large');
+  num.textContent = dayVal;
+  
+  headerContainer.appendChild(num);
+  dayGrid.appendChild(headerContainer);
+  
+  // Render events list
+  const eventsList = document.createElement('div');
+  eventsList.classList.add('day-events-list');
+  
+  const filteredTodos = getFilteredTodos();
+  const dayTodos = filteredTodos.filter(todo => {
+    const start = todo.startDate.substring(0, 10);
+    const end = todo.endDate.substring(0, 10);
+    return dayStringStr >= start && dayStringStr <= end;
+  });
+  
+  // Sort todos
+  dayTodos.sort((a, b) => {
+    const aAllDay = a.allDay || (a.startDate.substring(0, 10) < a.endDate.substring(0, 10));
+    const bAllDay = b.allDay || (b.startDate.substring(0, 10) < b.endDate.substring(0, 10));
+    if (aAllDay && !bAllDay) return -1;
+    if (!aAllDay && bAllDay) return 1;
+    return a.startDate.localeCompare(b.startDate);
+  });
+  
+  if (dayTodos.length === 0) {
+    eventsList.innerHTML = '<div class="todo-empty-state" style="font-size: 1.15rem; color: var(--text-muted); text-align: center; margin-top: 40px; font-weight: 500;">등록된 일정이 없습니다.</div>';
+  } else {
+    dayTodos.forEach(todo => {
+      const card = document.createElement('div');
+      card.classList.add('day-event-card');
+      if (todo.completed) card.classList.add('completed');
+      
+      card.style.backgroundColor = todo.color;
+      card.style.borderLeftColor = darkenColor(todo.color, -30);
+      
+      const titleEl = document.createElement('div');
+      titleEl.textContent = todo.title;
+      card.appendChild(titleEl);
+      
+      const isAllDay = todo.allDay || (todo.startDate.substring(0, 10) < todo.endDate.substring(0, 10));
+      if (!isAllDay) {
+        const timeEl = document.createElement('div');
+        timeEl.classList.add('day-event-card-time');
+        timeEl.textContent = `${formatTime(todo.startDate)} - ${formatTime(todo.endDate)}`;
+        card.appendChild(timeEl);
+      } else {
+        const timeEl = document.createElement('div');
+        timeEl.classList.add('day-event-card-time');
+        timeEl.textContent = '종일';
+        card.appendChild(timeEl);
+      }
+      
+      card.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openModal(todo);
+      });
+      
+      eventsList.appendChild(card);
+    });
+  }
+  
+  dayGrid.appendChild(eventsList);
+  
+  // Click day grid empty space to add new task
+  dayGrid.addEventListener('click', (e) => {
+    if (e.target === dayGrid || e.target === headerContainer || e.target === num) {
+      const startIso = `${dayStringStr}T09:00`;
+      const endIso = `${dayStringStr}T10:00`;
+      
+      document.getElementById('task-id').value = '';
+      document.getElementById('task-title').value = '';
+      document.getElementById('task-content').value = '';
+      document.getElementById('task-start').value = startIso;
+      document.getElementById('task-end').value = endIso;
+      document.getElementById('task-category').value = 'general';
+      document.getElementById('task-priority').value = 'medium';
+      document.getElementById('task-allday').checked = false;
+      
+      btnDeleteTask.classList.add('hidden');
+      openModalOverlay.classList.add('open');
+    }
+  });
 }
