@@ -1878,16 +1878,17 @@ input[type="color"]::-webkit-color-swatch {
     top: 12px;
     bottom: 12px;
     z-index: 45; /* Sit on top of everything */
-    width: 360px; /* ENLARGED: was 320px */
+    width: 82vw; /* Matches the screenshot proportion (approx 82% screen width) */
+    max-width: 440px; /* Safe upper limit on tablets */
     max-height: calc(100svh - 24px);
     overflow-y: auto;
     background: #1c1c1e;
     border: 1px solid rgba(255,255,255,0.08);
     box-shadow: 0 16px 48px rgba(0,0,0,0.55);
     border-radius: 28px;
-    padding: 28px 24px;
+    padding: 32px 28px; /* Increased padding */
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    transform: translateX(-400px); /* Adjusted for wider sidebar */
+    transform: translateX(-90vw); /* Ensure it goes fully offscreen */
     display: flex !important;
     flex-direction: column;
   }
@@ -1906,7 +1907,7 @@ input[type="color"]::-webkit-color-swatch {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 28px;
+    margin-bottom: 36px; /* Increased margin */
   }
   
   .sidebar-close-btn, .sidebar-settings-btn {
@@ -1926,18 +1927,18 @@ input[type="color"]::-webkit-color-swatch {
   }
   
   .sidebar-close-btn svg, .sidebar-settings-btn svg {
-    width: 32px !important; /* ENLARGED: was 28px */
-    height: 32px !important;
+    width: 38px !important; /* ENLARGED: was 32px */
+    height: 38px !important;
   }
 
   .view-modes-section {
-    margin-bottom: 30px;
+    margin-bottom: 36px;
   }
   
   .view-modes-section ul {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 16px; /* Increased gap */
     padding: 0;
     margin: 0;
     list-style: none;
@@ -1946,19 +1947,19 @@ input[type="color"]::-webkit-color-swatch {
   .view-modes-section li {
     display: flex;
     align-items: center;
-    gap: 20px; /* ENLARGED: was 16px */
-    padding: 18px 24px; /* ENLARGED: was 14px 20px */
-    border-radius: 18px;
+    gap: 24px; /* ENLARGED: was 20px */
+    padding: 22px 28px; /* ENLARGED: was 18px 24px */
+    border-radius: 20px;
     color: #c9c9ce;
-    font-size: 1.45rem; /* ENLARGED: was 1.25rem */
+    font-size: 1.6rem; /* ENLARGED: was 1.45rem */
     font-weight: 600;
     cursor: pointer;
     transition: background 0.15s ease, color 0.15s ease;
   }
   
   .view-modes-section li svg {
-    width: 30px !important; /* ENLARGED: was 26px */
-    height: 30px !important;
+    width: 34px !important; /* ENLARGED: was 30px */
+    height: 34px !important;
   }
   
   .view-modes-section li.active {
@@ -1972,18 +1973,19 @@ input[type="color"]::-webkit-color-swatch {
   }
 
   .sidebar-actions-section button {
-    height: 56px !important;
-    font-size: 1.3rem !important;
+    height: 68px !important; /* ENLARGED: was 56px */
+    font-size: 1.5rem !important; /* ENLARGED: was 1.3rem */
     font-weight: 700 !important;
-    border-radius: 16px !important;
+    border-radius: 18px !important;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
-    gap: 12px !important;
+    gap: 16px !important;
+    margin-bottom: 18px !important; /* Increased spacing */
   }
   .sidebar-actions-section button svg {
-    width: 24px !important;
-    height: 24px !important;
+    width: 30px !important; /* ENLARGED: was 24px */
+    height: 30px !important;
   }
 
   .accordion-header {
