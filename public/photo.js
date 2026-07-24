@@ -1,6 +1,14 @@
 const sessionState = document.getElementById('session-state');
 const btnStartBackup = document.getElementById('btn-start-backup');
 const btnRefresh = document.getElementById('btn-refresh');
+const btnKidsNoteSession = document.getElementById('btn-kidsnote-session');
+const kidsNoteLoginModal = document.getElementById('kidsnote-login-modal');
+const kidsNoteLoginClose = document.getElementById('kidsnote-login-close');
+const kidsNoteLoginForm = document.getElementById('kidsnote-login-form');
+const kidsNoteUsername = document.getElementById('kidsnote-username');
+const kidsNotePassword = document.getElementById('kidsnote-password');
+const kidsNoteLoginError = document.getElementById('kidsnote-login-error');
+const btnKidsNoteLogin = document.getElementById('btn-kidsnote-login');
 const extraUrl = document.getElementById('extra-url');
 const progressPanel = document.getElementById('progress-panel');
 const progressTitle = document.getElementById('progress-title');
@@ -15,6 +23,7 @@ const searchInput = document.getElementById('search-input');
 const sortSelect = document.getElementById('sort-select');
 const btnLoadMore = document.getElementById('btn-load-more');
 const yearFilter = document.getElementById('year-filter');
+const btnDownloadAll = document.getElementById('btn-download-all');
 const toast = document.getElementById('toast');
 const photoViewer = document.getElementById('photo-viewer');
 const viewerImage = document.getElementById('viewer-image');
@@ -31,6 +40,7 @@ let viewerHistoryActive = false;
 let selectedYear = '';
 let yearCounts = {};
 const PHOTO_PAGE_SIZE = 80;
+let loginReturnFocus = null;
 
 document.addEventListener('DOMContentLoaded', () => {
   btnStartBackup.addEventListener('click', startKidsNoteBackup);
@@ -38,14 +48,25 @@ document.addEventListener('DOMContentLoaded', () => {
     refreshSession();
     loadPhotos({ reset: true });
   });
+  btnKidsNoteSession.addEventListener('click', openKidsNoteLogin);
+  kidsNoteLoginClose.addEventListener('click', closeKidsNoteLogin);
+  kidsNoteLoginModal.addEventListener('click', (event) => {
+    if (event.target === kidsNoteLoginModal) closeKidsNoteLogin();
+  });
+  kidsNoteLoginForm.addEventListener('submit', loginKidsNote);
   searchInput.addEventListener('input', debounce(() => loadPhotos({ reset: true }), 250));
   sortSelect.addEventListener('change', () => loadPhotos({ reset: true }));
   btnLoadMore.addEventListener('click', () => loadPhotos({ reset: false }));
+  btnDownloadAll.addEventListener('click', downloadAllPhotos);
   viewerClose.addEventListener('click', closePhotoViewer);
   photoViewer.addEventListener('click', (event) => {
     if (event.target === photoViewer) closePhotoViewer();
   });
   document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !kidsNoteLoginModal.classList.contains('hidden')) {
+      closeKidsNoteLogin();
+      return;
+    }
     if (event.key === 'Escape' && !photoViewer.classList.contains('hidden')) {
       closePhotoViewer();
     }
@@ -69,8 +90,9 @@ async function refreshSession() {
     sessionState.classList.toggle('disconnected', !isConnected);
     sessionState.innerHTML = isConnected
       ? '<i data-lucide="link"></i><span>키즈노트 로그인 연결됨</span>'
-      : '<i data-lucide="link-2-off"></i><span>Planner 메인에서 키즈노트 로그인이 필요합니다</span>';
+      : '<i data-lucide="link-2-off"></i><span>키즈노트 로그인이 필요합니다</span>';
     btnStartBackup.disabled = !isConnected || Boolean(activeJobId);
+    if (isConnected && !kidsNoteLoginModal.classList.contains('hidden')) closeKidsNoteLogin();
   } catch {
     isConnected = false;
     sessionState.classList.add('disconnected');
@@ -78,6 +100,68 @@ async function refreshSession() {
     btnStartBackup.disabled = true;
   }
   lucide.createIcons();
+}
+
+function openKidsNoteLogin() {
+  loginReturnFocus = document.activeElement;
+  kidsNoteLoginError.textContent = '';
+  kidsNoteLoginError.classList.add('hidden');
+  kidsNoteLoginModal.classList.remove('hidden');
+  kidsNoteLoginModal.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('modal-open');
+  requestAnimationFrame(() => kidsNoteUsername.focus());
+}
+
+function closeKidsNoteLogin() {
+  kidsNoteLoginModal.classList.add('hidden');
+  kidsNoteLoginModal.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('modal-open');
+  kidsNotePassword.value = '';
+  if (loginReturnFocus instanceof HTMLElement) loginReturnFocus.focus();
+}
+
+async function loginKidsNote(event) {
+  event.preventDefault();
+  const username = kidsNoteUsername.value.trim();
+  const password = kidsNotePassword.value;
+  if (!username || !password) {
+    showLoginError('키즈노트 아이디와 비밀번호를 입력해 주세요.');
+    return;
+  }
+
+  btnKidsNoteLogin.disabled = true;
+  btnKidsNoteLogin.innerHTML = '<i data-lucide="loader-circle" class="spin"></i><span>로그인 확인 중</span>';
+  kidsNoteLoginError.classList.add('hidden');
+  lucide.createIcons();
+
+  try {
+    const response = await fetch('/api/kidsnote/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || '키즈노트 로그인에 실패했습니다.');
+
+    isConnected = true;
+    kidsNotePassword.value = '';
+    closeKidsNoteLogin();
+    await refreshSession();
+    showToast('키즈노트 로그인이 연결되었습니다.');
+  } catch (error) {
+    kidsNotePassword.value = '';
+    showLoginError(error.message);
+    kidsNotePassword.focus();
+  } finally {
+    btnKidsNoteLogin.disabled = false;
+    btnKidsNoteLogin.innerHTML = '<i data-lucide="log-in"></i><span>로그인하고 사진 백업 연결</span>';
+    lucide.createIcons();
+  }
+}
+
+function showLoginError(message) {
+  kidsNoteLoginError.textContent = message;
+  kidsNoteLoginError.classList.remove('hidden');
 }
 
 async function loadPhotos({ reset = true } = {}) {
@@ -106,6 +190,7 @@ async function loadPhotos({ reset = true } = {}) {
     photoCount.textContent = String(result.totalCount || photos.length);
     photoSize.textContent = formatBytes(result.totalSize || photos.reduce((sum, photo) => sum + (photo.size || 0), 0));
     renderYearFilter();
+    btnDownloadAll.disabled = photos.length === 0;
     renderPhotos();
     btnLoadMore.classList.toggle('hidden', !hasMorePhotos);
     btnLoadMore.disabled = false;
@@ -115,9 +200,26 @@ async function loadPhotos({ reset = true } = {}) {
   }
 }
 
+function downloadAllPhotos() {
+  if (!photos.length) {
+    showToast('다운로드할 사진이 없습니다.');
+    return;
+  }
+  btnDownloadAll.disabled = true;
+  btnDownloadAll.innerHTML = '<i data-lucide="loader-circle" class="spin"></i><span>압축 파일 준비 중</span>';
+  lucide.createIcons();
+  window.location.href = '/api/photos/download-all';
+  setTimeout(() => {
+    btnDownloadAll.disabled = false;
+    btnDownloadAll.innerHTML = '<i data-lucide="archive"></i><span>전체 사진 압축 다운로드</span>';
+    lucide.createIcons();
+  }, 1500);
+}
+
 async function startKidsNoteBackup() {
   if (!isConnected) {
-    showToast('먼저 Planner 메인에서 키즈노트에 로그인해 주세요.');
+    showToast('먼저 키즈노트에 로그인해 주세요.');
+    openKidsNoteLogin();
     return;
   }
   btnStartBackup.disabled = true;

@@ -11,7 +11,7 @@
   <!-- Lucide Icons CDN -->
   <script src="https://unpkg.com/lucide@latest"></script>
   <!-- Tailwind/Vanilla CSS (Vanilla CSS will be structured in style.css) -->
-  <link rel="stylesheet" href="style.css?v=20260718-11">
+  <link rel="stylesheet" href="style.css?v=20260724-1">
 </head>
 <body class="dark-theme">
   <div class="glow-bg">
@@ -115,6 +115,14 @@
 
     <!-- Main Content -->
     <main class="main-content">
+      <div class="mobile-topbar">
+        <button id="mobile-menu-button" class="mobile-icon-button" aria-label="메뉴 열기"><i data-lucide="menu"></i></button>
+        <div class="mobile-title-stack">
+          <div id="mobile-current-view-title">2026년 7월</div>
+          <div class="mobile-title-subtitle">전체 일정</div>
+        </div>
+        <button id="mobile-search-button" class="mobile-icon-button" aria-label="일정 검색"><i data-lucide="search"></i></button>
+      </div>
       <header class="main-header">
         <div class="header-left">
           <h2 id="current-view-title">2026년 7월</h2>
@@ -167,6 +175,13 @@
       </div>
     </main>
   </div>
+
+  <button id="mobile-fab" class="mobile-fab" aria-label="새 일정 추가"><i data-lucide="plus"></i></button>
+  <nav class="mobile-bottom-nav" aria-label="모바일 메뉴">
+    <button class="mobile-nav-item active" data-mobile-view="month"><i data-lucide="calendar-days"></i><span>달력</span></button>
+    <button class="mobile-nav-item" data-mobile-view="list"><i data-lucide="list"></i><span>일정</span></button>
+    <button id="mobile-more-button" class="mobile-nav-item"><i data-lucide="sliders-horizontal"></i><span>더보기</span></button>
+  </nav>
 
   <!-- Task Modal (Add/Edit) -->
   <div id="task-modal" class="modal">

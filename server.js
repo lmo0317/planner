@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const https = require('https');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
+const archiver = require('archiver');
 const db = require('./db');
 
 const execFileAsync = promisify(execFile);
@@ -375,6 +376,38 @@ app.get('/api/photos/:id/thumb', async (req, res) => {
   if (!filePath || !fs.existsSync(filePath)) return res.status(404).json({ error: '사진 파일을 찾을 수 없습니다.' });
   res.setHeader('Cache-Control', 'public, max-age=86400');
   return res.sendFile(filePath);
+});
+
+app.get('/api/photos/download-all', (req, res) => {
+  const photos = readPhotoIndex().filter(photo => fs.existsSync(path.join(PHOTO_FILES_DIR, photo.filename)));
+  if (!photos.length) return res.status(404).json({ error: '다운로드할 사진이 없습니다.' });
+
+  const date = new Date().toISOString().slice(0, 10);
+  const archive = archiver('zip', { zlib: { level: 9 } });
+  const usedNames = new Map();
+
+  res.statusCode = 200;
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="kidsnote-photos-${date}.zip"`);
+  archive.on('error', error => {
+    console.error('Failed to create photo archive:', error.message);
+    if (!res.headersSent) res.status(500).json({ error: '사진 압축 파일을 만들지 못했습니다.' });
+    else res.destroy(error);
+  });
+  archive.pipe(res);
+
+  for (const photo of photos) {
+    const filePath = path.join(PHOTO_FILES_DIR, photo.filename);
+    const baseName = sanitizePhotoName(photo.originalName || photo.filename);
+    const extension = path.extname(baseName);
+    const stem = extension ? baseName.slice(0, -extension.length) : baseName;
+    const count = usedNames.get(baseName) || 0;
+    const archiveName = count === 0 ? baseName : `${stem} (${count + 1})${extension}`;
+    usedNames.set(baseName, count + 1);
+    archive.file(filePath, { name: archiveName });
+  }
+
+  archive.finalize();
 });
 
 app.get('/api/photos/:id/file', (req, res) => {

@@ -27,6 +27,12 @@ const categoryFilters = document.querySelectorAll('#category-filters li');
 const priorityFilters = document.querySelectorAll('#priority-filters li');
 const searchInput = document.getElementById('search-input');
 const toastElement = document.getElementById('toast');
+const mobileFab = document.getElementById('mobile-fab');
+const mobileMenuButton = document.getElementById('mobile-menu-button');
+const mobileSearchButton = document.getElementById('mobile-search-button');
+const mobileMoreButton = document.getElementById('mobile-more-button');
+const mobileNavItems = document.querySelectorAll('[data-mobile-view]');
+const mobileCurrentViewTitle = document.getElementById('mobile-current-view-title');
 
 // Views Panels
 const calendarViewPanel = document.getElementById('calendar-view');
@@ -126,6 +132,27 @@ function toggleTheme() {
 // Event Listeners Setup
 function setupEventListeners() {
   themeToggle.addEventListener('click', toggleTheme);
+
+  mobileFab?.addEventListener('click', () => openModal());
+  mobileMenuButton?.addEventListener('click', () => {
+    document.querySelector('.app-container')?.classList.toggle('mobile-menu-open');
+  });
+  mobileMoreButton?.addEventListener('click', () => {
+    document.querySelector('.app-container')?.classList.toggle('mobile-menu-open');
+    mobileMoreButton.classList.toggle('active');
+  });
+  mobileSearchButton?.addEventListener('click', () => {
+    searchInput?.focus();
+  });
+  mobileNavItems.forEach(item => {
+    item.addEventListener('click', () => {
+      const targetView = item.dataset.mobileView;
+      viewSelectors.forEach(view => view.classList.toggle('active', view.dataset.view === targetView));
+      mobileNavItems.forEach(nav => nav.classList.toggle('active', nav === item));
+      currentView = targetView;
+      switchView();
+    });
+  });
   
   // Navigation (Month vs List)
   viewSelectors.forEach(el => {
@@ -290,6 +317,7 @@ function renderCalendar() {
   
   // Format Month Title
   currentViewTitle.textContent = `${year}년 ${month + 1}월`;
+  if (mobileCurrentViewTitle) mobileCurrentViewTitle.textContent = `${year}년 ${month + 1}월`;
   
   const firstDay = new Date(year, month, 1);
   const lastDay = new Date(year, month + 1, 0);
