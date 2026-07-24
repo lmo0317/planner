@@ -2042,19 +2042,23 @@ input[type="color"]::-webkit-color-swatch {
 
   .mobile-fab {
     position: fixed;
-    right: 20px;
-    bottom: 24px;
+    right: 24px;
+    bottom: 28px;
     z-index: 30;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 60px;
-    height: 60px;
+    width: 76px;
+    height: 76px;
     border: 0;
     border-radius: 50%;
     color: white;
     background: #35353b;
     box-shadow: 0 10px 24px rgba(0,0,0,0.32);
+  }
+  .mobile-fab svg {
+    width: 36px !important;
+    height: 36px !important;
   }
 
   .mobile-fab:active {
@@ -2144,30 +2148,35 @@ input[type="color"]::-webkit-color-swatch {
 
   .mobile-fab-menu-container {
     position: absolute;
-    right: 20px;
-    bottom: 96px; /* Above the FAB button */
+    right: 24px;
+    bottom: 120px; /* Above the larger FAB button */
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 14px;
     align-items: flex-end;
     width: auto;
-    max-width: 280px;
+    max-width: 320px;
   }
 
   .mobile-menu-ai-btn {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    width: 200px;
-    padding: 12px 16px;
+    width: 240px;
+    padding: 16px 20px;
     background: #242428;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 999px;
     color: #f2f2f5;
-    font-size: 0.9rem;
-    font-weight: 600;
+    font-size: 1.08rem;
+    font-weight: 700;
     box-shadow: 0 8px 24px rgba(0,0,0,0.35);
     cursor: pointer;
+  }
+  .mobile-menu-ai-btn svg,
+  .mobile-menu-ai-btn img {
+    width: 24px !important;
+    height: 24px !important;
   }
   
   .mobile-menu-ai-btn:active {
@@ -2200,7 +2209,7 @@ input[type="color"]::-webkit-color-swatch {
   .mobile-fab-menu-list {
     display: flex;
     flex-direction: column;
-    width: 180px;
+    width: 210px;
     background: #242428;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 16px;
@@ -2211,14 +2220,14 @@ input[type="color"]::-webkit-color-swatch {
   .mobile-fab-menu-item {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 14px 18px;
+    gap: 14px;
+    padding: 16px 22px;
     background: transparent;
     border: 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     color: #c9c9ce;
-    font-size: 0.92rem;
-    font-weight: 500;
+    font-size: 1.06rem;
+    font-weight: 600;
     text-align: left;
     cursor: pointer;
   }
@@ -2232,8 +2241,8 @@ input[type="color"]::-webkit-color-swatch {
   }
 
   .mobile-fab-menu-item svg {
-    width: 20px;
-    height: 20px;
+    width: 24px;
+    height: 24px;
     color: #a9a2ff;
   }
 
