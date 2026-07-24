@@ -314,6 +314,44 @@ function setupEventListeners() {
       }
     });
   });
+
+  // Swipe Navigation for Mobile (Month, Week, Day views)
+  let touchStartX = 0;
+  let touchStartY = 0;
+  
+  const mainContent = document.querySelector('.main-content');
+  if (mainContent) {
+    mainContent.addEventListener('touchstart', (e) => {
+      touchStartX = e.changedTouches[0].clientX;
+      touchStartY = e.changedTouches[0].clientY;
+    }, { passive: true });
+    
+    mainContent.addEventListener('touchend', (e) => {
+      // Ignore swipe gestures if modals or drawer menu are active
+      const isModalOpen = document.querySelector('.modal-overlay.open') || 
+                          document.querySelector('#ai-schedule-modal.open') || 
+                          document.querySelector('#kidsnote-modal.open');
+      const isMenuOpen = document.querySelector('.app-container')?.classList.contains('mobile-menu-open');
+      if (isModalOpen || isMenuOpen) return;
+      
+      const touchEndX = e.changedTouches[0].clientX;
+      const touchEndY = e.changedTouches[0].clientY;
+      
+      const diffX = touchEndX - touchStartX;
+      const diffY = touchEndY - touchStartY;
+      
+      // Threshold: horizontal swipe distance > 70px, vertical deviation < 50px (to avoid page scroll conflicts)
+      if (Math.abs(diffX) > 70 && Math.abs(diffY) < 50) {
+        if (diffX > 0) {
+          // Swipe Right -> View Prev
+          navigateCalendar(-1);
+        } else {
+          // Swipe Left -> View Next
+          navigateCalendar(1);
+        }
+      }
+    }, { passive: true });
+  }
 }
 
 // Fetch events from server
