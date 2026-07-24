@@ -1952,7 +1952,8 @@ input[type="color"]::-webkit-color-swatch {
     border-top: 1px solid rgba(255,255,255,0.035);
     border-bottom: 1px solid rgba(255,255,255,0.07);
     color: #a9a9ae;
-    font-size: 0.76rem;
+    font-size: 0.95rem;
+    font-weight: 700;
   }
 
   .calendar-grid {
@@ -1970,21 +1971,33 @@ input[type="color"]::-webkit-color-swatch {
   }
 
   .calendar-date-header {
-    min-height: 27px;
+    min-height: 32px;
     justify-content: center;
   }
 
   .holiday-name {
-    display: none;
+    display: block !important;
+    font-size: 0.6rem;
+    color: #ef4444;
+    text-align: center;
+    margin-top: 2px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .day-number {
     align-self: center;
-    flex-basis: 27px;
-    width: 27px;
-    height: 27px;
-    font-size: 0.86rem;
+    flex-basis: 32px;
+    width: 32px;
+    height: 32px;
+    font-size: 1.15rem;
+    font-weight: 700;
     color: #e0e0e4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .calendar-day.other-month .day-number {
@@ -1994,6 +2007,7 @@ input[type="color"]::-webkit-color-swatch {
   .calendar-day.today .day-number {
     background: #45454c;
     box-shadow: none;
+    border-radius: 50%;
   }
 
   .day-events {
@@ -2004,20 +2018,21 @@ input[type="color"]::-webkit-color-swatch {
 
   .event-item,
   .event-lane-placeholder {
-    flex-basis: 21px;
-    min-height: 21px;
+    flex-basis: 24px;
+    min-height: 24px;
     margin-left: 4px;
     margin-right: 4px;
   }
 
   .event-item {
-    padding: 3px 5px;
+    padding: 4px 6px;
     border: 0;
     border-radius: 4px;
-    font-size: 0.64rem;
+    font-size: 0.74rem;
     background: rgba(92, 102, 184, 0.55) !important;
     color: #dddff5;
     box-shadow: none;
+    font-weight: 500;
   }
 
   .event-item.period-event.continues-before,
