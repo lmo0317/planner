@@ -1561,6 +1561,108 @@ input[type="color"]::-webkit-color-swatch {
   cursor: default;
 }
 
+/* Week View Styles */
+.week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  flex-grow: 1;
+  background: var(--bg-sidebar);
+  border-left: 1px solid var(--border-color);
+  min-height: 0;
+}
+
+.week-day-col {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border-color);
+  padding: 16px 8px;
+  min-height: 0;
+  overflow-y: auto;
+  background: transparent;
+}
+
+.week-day-col:last-child {
+  border-right: none;
+}
+
+.week-day-header-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 16px;
+  gap: 4px;
+}
+
+.week-day-label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.week-day-number {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.week-day-col.today .week-day-number {
+  background: var(--primary-color);
+  color: white;
+}
+
+.week-day-col.sunday .week-day-number,
+.week-day-col.sunday .week-day-label {
+  color: #ef4444;
+}
+
+.week-day-col.saturday .week-day-number,
+.week-day-col.saturday .week-day-label {
+  color: #3b82f6;
+}
+
+.week-events-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-grow: 1;
+}
+
+.week-event-card {
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: white;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+  transition: transform 0.15s ease, filter 0.15s ease;
+  border-left: 4px solid rgba(0,0,0,0.25);
+  word-break: break-all;
+}
+
+.week-event-card:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+}
+
+.week-event-card.completed {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+.week-event-time {
+  font-size: 0.72rem;
+  font-weight: 500;
+  opacity: 0.85;
+  margin-top: 2px;
+}
+
 @media (max-width: 640px) {
   .ai-schedule-modal-content,
   .kidsnote-modal-content {
@@ -2597,4 +2699,50 @@ input[type="color"]::-webkit-color-swatch {
     visibility: hidden;
     pointer-events: none;
   }
-}
+
+  /* Mobile week view overrides */
+  .week-grid {
+    height: calc(100svh - 144px);
+  }
+  
+  .week-day-col {
+    padding: 12px 4px;
+  }
+  
+  .week-day-number {
+    font-size: 1.65rem;
+    font-weight: 700;
+    width: 52px;
+    height: 52px;
+    margin: 0 auto 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+  }
+  
+  .week-day-col.today .week-day-number {
+    background: #45454c;
+    color: white;
+  }
+  
+  .week-day-label {
+    font-size: 1.1rem;
+    font-weight: 600;
+  }
+  
+  .week-events-container {
+    gap: 6px;
+  }
+  
+  .week-event-card {
+    font-size: 1.15rem;
+    padding: 10px 14px;
+    border-radius: 10px;
+    border-left: 5px solid rgba(0,0,0,0.25);
+  }
+  
+  .week-event-time {
+    font-size: 0.95rem;
+    margin-top: 4px;
+  }

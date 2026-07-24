@@ -36,7 +36,9 @@ const mobileCurrentViewTitle = document.getElementById('mobile-current-view-titl
 
 // Views Panels
 const calendarViewPanel = document.getElementById('calendar-view');
+const weekViewPanel = document.getElementById('week-view');
 const listViewPanel = document.getElementById('list-view');
+const weekGrid = document.getElementById('week-grid');
 
 // List view containers
 const pendingList = document.getElementById('pending-list');
@@ -305,15 +307,23 @@ async function fetchTodos() {
   }
 }
 
-// View switcher (Calendar / List)
+// View switcher (Calendar / Week / List)
 function switchView() {
   if (currentView === 'month') {
     calendarViewPanel.classList.add('active');
+    weekViewPanel.classList.remove('active');
     listViewPanel.classList.remove('active');
     document.querySelector('.nav-buttons').classList.remove('hidden');
     renderCalendar();
+  } else if (currentView === 'week') {
+    calendarViewPanel.classList.remove('active');
+    weekViewPanel.classList.add('active');
+    listViewPanel.classList.remove('active');
+    document.querySelector('.nav-buttons').classList.remove('hidden');
+    renderWeek();
   } else {
     calendarViewPanel.classList.remove('active');
+    weekViewPanel.classList.remove('active');
     listViewPanel.classList.add('active');
     document.querySelector('.nav-buttons').classList.add('hidden');
     renderList();
@@ -322,8 +332,12 @@ function switchView() {
 
 // Navigate Calendar
 function navigateCalendar(direction) {
-  const currentMonth = currentViewDate.getMonth();
-  currentViewDate.setMonth(currentMonth + direction);
+  if (currentView === 'week') {
+    currentViewDate.setDate(currentViewDate.getDate() + (direction * 7));
+  } else {
+    const currentMonth = currentViewDate.getMonth();
+    currentViewDate.setMonth(currentMonth + direction);
+  }
   render();
 }
 
@@ -351,6 +365,8 @@ function getFilteredTodos() {
 function render() {
   if (currentView === 'month') {
     renderCalendar();
+  } else if (currentView === 'week') {
+    renderWeek();
   } else {
     renderList();
     const mobileTodayBtn = document.getElementById('mobile-today-btn');
@@ -1847,4 +1863,182 @@ async function saveAiSchedules() {
     showToast(error.message, 'danger');
     btnSaveAiSchedules.disabled = false;
   }
+}
+
+function renderWeek() {
+  weekGrid.innerHTML = '';
+
+  const today = new Date();
+  const startOfWeek = getStartOfWeek(currentViewDate);
+
+  // Update Topbar Title for week view
+  const endOfWeek = new Date(startOfWeek);
+  endOfWeek.setDate(startOfWeek.getDate() + 6);
+  
+  const startYear = startOfWeek.getFullYear();
+  const startMonth = startOfWeek.getMonth() + 1;
+  const endYear = endOfWeek.getFullYear();
+  const endMonth = endOfWeek.getMonth() + 1;
+  
+  let weekTitle = `${startYear}년 ${startMonth}월`;
+  let mobileWeekTitle = `${startYear}. ${startMonth}.`;
+  if (startYear !== endYear) {
+    weekTitle = `${startYear}년 ${startMonth}월 ~ ${endYear}년 ${endMonth}월`;
+    mobileWeekTitle = `${startYear}. ${startMonth}. ~ ${endMonth}.`;
+  } else if (startMonth !== endMonth) {
+    weekTitle = `${startYear}년 ${startMonth}월 ~ ${endMonth}월`;
+    mobileWeekTitle = `${startYear}. ${startMonth}. ~ ${endMonth}.`;
+  }
+  
+  currentViewTitle.textContent = weekTitle;
+  if (mobileCurrentViewTitle) {
+    mobileCurrentViewTitle.innerHTML = `${mobileWeekTitle} <i data-lucide="chevron-down" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle; margin-left: 2px;"></i>`;
+  }
+
+  // Check if today is in this week
+  let isTodayInWeek = false;
+  for (let i = 0; i < 7; i++) {
+    const dayDate = new Date(startOfWeek);
+    dayDate.setDate(startOfWeek.getDate() + i);
+    if (dayDate.toDateString() === today.toDateString()) {
+      isTodayInWeek = true;
+      break;
+    }
+  }
+
+  const mobileTodayBtn = document.getElementById('mobile-today-btn');
+  if (mobileTodayBtn) {
+    if (isTodayInWeek) {
+      mobileTodayBtn.classList.add('hidden');
+    } else {
+      mobileTodayBtn.classList.remove('hidden');
+      const isFuture = currentViewDate > today;
+      if (isFuture) {
+        mobileTodayBtn.innerHTML = '<i data-lucide="chevron-left"></i><span>오늘</span>';
+      } else {
+        mobileTodayBtn.innerHTML = '<span>오늘</span><i data-lucide="chevron-right"></i>';
+      }
+      lucide.createIcons();
+    }
+  }
+
+  // Generate 7 days
+  const filteredTodos = getFilteredTodos();
+  
+  for (let i = 0; i < 7; i++) {
+    const dayDate = new Date(startOfWeek);
+    dayDate.setDate(startOfWeek.getDate() + i);
+    const dayStringStr = dayDate.toISOString().slice(0, 10);
+    
+    const isToday = dayDate.toDateString() === today.toDateString();
+    
+    // Day column wrapper
+    const col = document.createElement('div');
+    col.classList.add('week-day-col');
+    if (isToday) col.classList.add('today');
+    
+    const dayOfWeek = dayDate.getDay();
+    if (dayOfWeek === 0) col.classList.add('sunday');
+    if (dayOfWeek === 6) col.classList.add('saturday');
+    
+    // Header for this day in the grid
+    const headerContainer = document.createElement('div');
+    headerContainer.classList.add('week-day-header-container');
+    
+    const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+    const label = document.createElement('div');
+    label.classList.add('week-day-label');
+    label.textContent = dayNames[dayOfWeek];
+    
+    const num = document.createElement('div');
+    num.classList.add('week-day-number');
+    num.textContent = dayDate.getDate();
+    
+    headerContainer.appendChild(label);
+    headerContainer.appendChild(num);
+    col.appendChild(headerContainer);
+    
+    // Events container
+    const eventsContainer = document.createElement('div');
+    eventsContainer.classList.add('week-events-container');
+    
+    // Find todos scheduled on this day
+    const dayTodos = filteredTodos.filter(todo => {
+      const start = todo.startDate.substring(0, 10);
+      const end = todo.endDate.substring(0, 10);
+      return dayStringStr >= start && dayStringStr <= end;
+    });
+    
+    // Sort todos (all-day/period first, then by start time)
+    dayTodos.sort((a, b) => {
+      const aAllDay = a.allDay || (a.startDate.substring(0, 10) < a.endDate.substring(0, 10));
+      const bAllDay = b.allDay || (b.startDate.substring(0, 10) < b.endDate.substring(0, 10));
+      if (aAllDay && !bAllDay) return -1;
+      if (!aAllDay && bAllDay) return 1;
+      return a.startDate.localeCompare(b.startDate);
+    });
+    
+    // Render event cards
+    dayTodos.forEach(todo => {
+      const card = document.createElement('div');
+      card.classList.add('week-event-card');
+      if (todo.completed) card.classList.add('completed');
+      
+      card.style.backgroundColor = todo.color;
+      card.style.borderLeftColor = darkenColor(todo.color, -30);
+      
+      const titleEl = document.createElement('div');
+      titleEl.classList.add('week-event-title');
+      titleEl.textContent = todo.title;
+      card.appendChild(titleEl);
+      
+      // If timed event, show time duration
+      const isAllDay = todo.allDay || (todo.startDate.substring(0, 10) < todo.endDate.substring(0, 10));
+      if (!isAllDay) {
+        const timeEl = document.createElement('div');
+        timeEl.classList.add('week-event-time');
+        timeEl.textContent = `${formatTime(todo.startDate)} - ${formatTime(todo.endDate)}`;
+        card.appendChild(timeEl);
+      }
+      
+      card.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openModal(todo);
+      });
+      
+      eventsContainer.appendChild(card);
+    });
+    
+    col.appendChild(eventsContainer);
+    
+    // Add click listener to day column to add a new event for this date
+    col.addEventListener('click', () => {
+      const now = new Date();
+      const startIso = `${dayStringStr}T09:00`;
+      const endIso = `${dayStringStr}T10:00`;
+      
+      document.getElementById('task-id').value = '';
+      document.getElementById('task-title').value = '';
+      document.getElementById('task-content').value = '';
+      document.getElementById('task-start').value = startIso;
+      document.getElementById('task-end').value = endIso;
+      document.getElementById('task-category').value = 'general';
+      document.getElementById('task-priority').value = 'medium';
+      document.getElementById('task-allday').checked = false;
+      
+      btnDeleteTask.classList.add('hidden');
+      openModalOverlay.classList.add('open');
+    });
+    
+    weekGrid.appendChild(col);
+  }
+  
+  lucide.createIcons();
+}
+
+function getStartOfWeek(d) {
+  const date = new Date(d);
+  const day = date.getDay();
+  const diff = date.getDate() - day;
+  return new Date(date.setDate(diff));
 }

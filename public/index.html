@@ -55,6 +55,9 @@
             <li class="active" data-view="month">
               <i data-lucide="calendar"></i> <span>월간 달력</span>
             </li>
+            <li data-view="week">
+              <i data-lucide="calendar-days"></i> <span>주간 달력</span>
+            </li>
             <li data-view="list">
               <i data-lucide="list-todo"></i> <span>목록 보기</span>
             </li>
@@ -156,6 +159,16 @@
         <div id="calendar-grid" class="calendar-grid"></div>
       </div>
 
+      <!-- Week View Wrapper -->
+      <div id="week-view" class="view-panel">
+        <!-- Week Header (Days of week) -->
+        <div class="calendar-days">
+          <div>일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div>토</div>
+        </div>
+        <!-- Week Grid -->
+        <div id="week-grid" class="week-grid"></div>
+      </div>
+
       <!-- List View Wrapper -->
       <div id="list-view" class="view-panel">
         <div class="list-container">
@@ -176,7 +189,47 @@
     </main>
   </div>
 
+  <button id="mobile-today-btn" class="mobile-today-btn hidden"><i data-lucide="chevron-left"></i><span>오늘</span></button>
   <button id="mobile-fab" class="mobile-fab" aria-label="새 일정 추가"><i data-lucide="plus"></i></button>
+
+  <!-- Mobile FAB Menu Overlay (Naver Calendar style) -->
+  <div id="mobile-fab-overlay" class="mobile-fab-overlay hidden">
+    <div class="mobile-fab-menu-container">
+      <button type="button" id="mobile-menu-ai-btn" class="mobile-menu-ai-btn">
+        <span class="ai-btn-left">
+          <span class="ai-icon-wrapper">
+            <svg class="ai-logo-svg" viewBox="0 0 24 24" width="18" height="18">
+              <defs>
+                <linearGradient id="ai-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#2b5cff" />
+                  <stop offset="50%" stop-color="#9b51e0" />
+                  <stop offset="100%" stop-color="#ff4081" />
+                </linearGradient>
+              </defs>
+              <path fill="url(#ai-grad)" d="M8.5 6C6.5 6 5 7.5 5 9.5C5 12.5 8.5 16 12 19.5C15.5 16 19 12.5 19 9.5C19 7.5 17.5 6 15.5 6C13.8 6 12.5 7.2 12 8.5C11.5 7.2 10.2 6 8.5 6Z" />
+            </svg>
+          </span>
+          <span class="ai-btn-text">AI 일정 등록</span>
+        </span>
+        <span class="ai-btn-help"><i data-lucide="help-circle"></i></span>
+      </button>
+      <div class="mobile-fab-menu-list">
+        <button class="mobile-fab-menu-item" data-action="diary">
+          <i data-lucide="book-open"></i><span>다이어리</span>
+        </button>
+        <button class="mobile-fab-menu-item" data-action="habit">
+          <i data-lucide="flag"></i><span>습관</span>
+        </button>
+        <button class="mobile-fab-menu-item" data-action="todo">
+          <i data-lucide="check-square"></i><span>할 일</span>
+        </button>
+        <button class="mobile-fab-menu-item" data-action="event">
+          <i data-lucide="calendar"></i><span>일정</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <nav class="mobile-bottom-nav" aria-label="모바일 메뉴">
     <button class="mobile-nav-item active" data-mobile-view="month"><i data-lucide="calendar-days"></i><span>달력</span></button>
     <button class="mobile-nav-item" data-mobile-view="list"><i data-lucide="list"></i><span>일정</span></button>
@@ -325,15 +378,35 @@
   <!-- AI Natural Language Schedule Modal -->
   <div id="ai-schedule-modal" class="modal">
     <div class="modal-content glass ai-schedule-modal-content">
+      <div class="bottom-sheet-handle"></div>
       <span class="close-modal" id="close-ai-schedule-modal"><i data-lucide="x"></i></span>
-      <h2>AI 일정 추가</h2>
-      <p class="ai-schedule-guide">원하는 일정을 자연스럽게 입력하면 등록 후보를 만들어드립니다. 시간이 없으면 종일 일정으로 판단합니다.</p>
+      
+      <h2 class="desktop-only">AI 일정 추가</h2>
+      <p class="ai-schedule-guide desktop-only">원하는 일정을 자연스럽게 입력하면 등록 후보를 만들어드립니다. 시간이 없으면 종일 일정으로 판단합니다.</p>
+
+      <div class="ai-input-wrapper">
+        <div class="ai-logo-container">
+          <svg class="ai-logo-svg" viewBox="0 0 24 24" width="22" height="22">
+            <defs>
+              <linearGradient id="ai-logo-grad-m" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#2b5cff" />
+                <stop offset="50%" stop-color="#9b51e0" />
+                <stop offset="100%" stop-color="#ff4081" />
+              </linearGradient>
+            </defs>
+            <path fill="url(#ai-logo-grad-m)" d="M8.5 6C6.5 6 5 7.5 5 9.5C5 12.5 8.5 16 12 19.5C15.5 16 19 12.5 19 9.5C19 7.5 17.5 6 15.5 6C13.8 6 12.5 7.2 12 8.5C11.5 7.2 10.2 6 8.5 6Z" />
+          </svg>
+        </div>
+        
+        <textarea id="ai-schedule-text" rows="1" placeholder="일정을 자연스럽게 입력하세요 (예: 내일 10시 축구)"></textarea>
+        <div id="ai-schedule-display-title" class="ai-display-title hidden"></div>
+        
+        <button type="button" class="ai-mic-btn" aria-label="음성 인식">
+          <i data-lucide="mic"></i>
+        </button>
+      </div>
 
       <div id="ai-schedule-input-panel">
-        <div class="form-group">
-          <label for="ai-schedule-text">일정 내용</label>
-          <textarea id="ai-schedule-text" rows="6" placeholder="예: 다음 주 화요일 오후 3시에 강남 치과 예약하고, 수요일 오전 10시에는 팀 회의 추가해줘"></textarea>
-        </div>
         <div class="ai-example-list">
           <span>입력 예시</span>
           <button type="button" class="ai-example-chip">내일 오후 3시 치과 예약</button>
@@ -342,15 +415,11 @@
       </div>
 
       <div id="ai-schedule-loading" class="import-state-panel hidden">
-        <div class="spinner"></div>
-        <p>AI가 날짜와 시간을 확인하고 있습니다...</p>
+        <p class="ai-loading-text">입력한 내용을 분석하고 있어요...</p>
       </div>
 
       <div id="ai-schedule-preview" class="hidden">
-        <div class="ai-preview-header">
-          <h3>추출된 일정 (<span id="ai-schedule-count">0</span>)</h3>
-          <button type="button" id="btn-ai-schedule-back" class="btn-text">다시 입력</button>
-        </div>
+        <button type="button" id="btn-ai-schedule-back" class="btn-text hidden">다시 입력</button>
         <div id="ai-schedule-clarification" class="ai-clarification hidden"></div>
         <div id="ai-schedule-list" class="extracted-list ai-schedule-list"></div>
       </div>
@@ -362,7 +431,7 @@
             <i data-lucide="wand-sparkles"></i> 일정 확인
           </button>
           <button type="button" id="btn-save-ai-schedules" class="btn btn-success hidden">
-            <i data-lucide="calendar-plus"></i> 선택 일정 등록 (<span id="ai-selected-count">0</span>)
+            <i data-lucide="calendar-plus"></i> 등록하기
           </button>
         </div>
       </div>
