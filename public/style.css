@@ -2039,7 +2039,7 @@ input[type="color"]::-webkit-color-swatch {
   .mobile-fab {
     position: fixed;
     right: 20px;
-    bottom: 89px;
+    bottom: 24px;
     z-index: 30;
     display: inline-flex;
     align-items: center;
@@ -2058,6 +2058,7 @@ input[type="color"]::-webkit-color-swatch {
   }
 
   .mobile-bottom-nav {
+    display: none !important;
     position: fixed;
     left: 0;
     right: 0;
@@ -2115,5 +2116,440 @@ input[type="color"]::-webkit-color-swatch {
 
   .sidebar .mobile-tools-title {
     display: block;
+  }
+
+  /* Mobile FAB Overlay Menu (Naver Calendar style) */
+  .mobile-fab-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(4px);
+    z-index: 29;
+    transition: opacity 0.25s ease, visibility 0.25s ease;
+    opacity: 0;
+    visibility: hidden;
+  }
+  
+  .mobile-fab-overlay:not(.hidden) {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .mobile-fab-menu-container {
+    position: absolute;
+    right: 20px;
+    bottom: 96px; /* Above the FAB button */
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    align-items: flex-end;
+    width: auto;
+    max-width: 280px;
+  }
+
+  .mobile-menu-ai-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 200px;
+    padding: 12px 16px;
+    background: #242428;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    color: #f2f2f5;
+    font-size: 0.9rem;
+    font-weight: 600;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+    cursor: pointer;
+  }
+  
+  .mobile-menu-ai-btn:active {
+    background: #303038;
+  }
+
+  .ai-btn-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .ai-icon-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .ai-btn-help {
+    display: flex;
+    align-items: center;
+    color: #8c8c92;
+  }
+  
+  .ai-btn-help svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .mobile-fab-menu-list {
+    display: flex;
+    flex-direction: column;
+    width: 180px;
+    background: #242428;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  }
+
+  .mobile-fab-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    color: #c9c9ce;
+    font-size: 0.92rem;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .mobile-fab-menu-item:last-child {
+    border-bottom: 0;
+  }
+
+  .mobile-fab-menu-item:active {
+    background: rgba(255,255,255,0.06);
+  }
+
+  .mobile-fab-menu-item svg {
+    width: 20px;
+    height: 20px;
+    color: #a9a2ff;
+  }
+
+  /* Responsive AI Schedule Bottom Sheet */
+  #ai-schedule-modal {
+    justify-content: flex-end; /* Align bottom sheet to the bottom */
+    align-items: flex-end;
+    padding: 0;
+  }
+  
+  #ai-schedule-modal.open {
+    display: flex !important;
+  }
+
+  .ai-schedule-modal-content {
+    width: 100vw !important;
+    max-height: 90svh !important;
+    margin: 0;
+    border-radius: 20px 20px 0 0 !important;
+    border: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    background: #1c1c1e !important;
+    box-shadow: 0 -8px 36px rgba(155, 81, 224, 0.28) !important;
+    padding: 10px 18px 24px !important;
+    position: relative;
+    transform: translateY(100%);
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  
+  #ai-schedule-modal.open .ai-schedule-modal-content {
+    transform: translateY(0);
+  }
+
+  .bottom-sheet-handle {
+    display: block;
+    width: 38px;
+    height: 4px;
+    background: #4e4e50;
+    border-radius: 999px;
+    margin: 0 auto 16px;
+  }
+  
+  .close-modal#close-ai-schedule-modal {
+    display: none; /* Hide X button on mobile */
+  }
+
+  .ai-input-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: transparent;
+    padding: 8px 0 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    margin-bottom: 16px;
+  }
+
+  .ai-logo-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+  }
+
+  #ai-schedule-text {
+    flex: 1;
+    background: transparent;
+    border: 0;
+    color: #ffffff;
+    font-size: 1.15rem;
+    font-weight: 500;
+    resize: none;
+    outline: none;
+    padding: 4px 0;
+    min-height: 28px;
+    line-height: 1.35;
+  }
+
+  #ai-schedule-text::placeholder {
+    color: #74747b;
+  }
+
+  .ai-display-title {
+    flex: 1;
+    color: #ffffff;
+    font-size: 1.15rem;
+    font-weight: 700;
+    line-height: 1.35;
+    padding: 4px 0;
+  }
+
+  .ai-mic-btn {
+    background: transparent;
+    border: 0;
+    color: #8c8c92;
+    padding: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+  
+  .ai-mic-btn svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  .ai-example-list {
+    margin-bottom: 20px;
+  }
+
+  .ai-loading-text {
+    color: #c9c9ce;
+    font-size: 0.95rem;
+    margin: 20px 0;
+    text-align: center;
+  }
+
+  /* Naver style result cards */
+  .extracted-list.ai-schedule-list {
+    margin: 0 0 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .extracted-card {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center;
+    background: #2b2b2e;
+    border-radius: 12px;
+    padding: 16px;
+    position: relative;
+    border: 0 !important;
+  }
+
+  .card-time-col {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 80px;
+  }
+
+  .card-time-col.all-day {
+    color: #a9a2ff;
+    font-size: 1rem;
+    font-weight: 600;
+  }
+
+  .time-start {
+    font-size: 0.98rem;
+    font-weight: 700;
+    color: #ffffff;
+  }
+
+  .time-end {
+    font-size: 0.84rem;
+    color: #8c8c92;
+    margin-top: 3px;
+  }
+
+  .card-divider {
+    width: 1px;
+    height: 36px;
+    background: rgba(255, 255, 255, 0.08);
+    margin: 0 16px;
+  }
+
+  .card-right-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .event-card-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #ffffff;
+  }
+
+  .event-card-date {
+    font-size: 0.86rem;
+    color: #a9a9ae;
+  }
+
+  .calendar-select {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: #8c8c92;
+    font-size: 0.78rem;
+    font-weight: 500;
+    margin-top: 2px;
+  }
+
+  .calendar-select svg {
+    width: 12px;
+    height: 12px;
+  }
+
+  .card-edit-btn {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    background: transparent;
+    border: 0;
+    color: #8c8c92;
+    padding: 4px;
+    cursor: pointer;
+  }
+
+  .card-edit-btn svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  /* Edit form inside card */
+  .card-edit-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .card-edit-form input[type="text"],
+  .card-edit-form input[type="datetime-local"] {
+    background: #1c1c1e;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    color: white;
+    padding: 6px 10px;
+    font-size: 0.9rem;
+    width: 100%;
+  }
+
+  .ai-schedule-footer {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 0 0;
+    border: 0 !important;
+    background: transparent !important;
+  }
+
+  .ai-schedule-footer .btn {
+    flex: 1;
+    border-radius: 999px !important;
+    padding: 14px 20px !important;
+    font-size: 1rem !important;
+    font-weight: 600 !important;
+  }
+
+  #btn-cancel-ai-schedule {
+    background: #303033;
+    color: #e0e0e3;
+    border: 0;
+  }
+
+  .footer-right {
+    flex: 1;
+    display: flex;
+  }
+
+  .footer-right button {
+    width: 100%;
+  }
+
+  #btn-analyze-ai-schedule {
+    background: #303033 !important;
+    color: #e0e0e3 !important;
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+
+  #btn-save-ai-schedules {
+    background: #252431 !important;
+    color: #a9a2ff !important;
+    border: 1.5px solid #6b5cff;
+    box-shadow: 0 4px 16px rgba(107, 92, 255, 0.25);
+  }
+
+  /* Adjustments for normal Task Modal inside mobile */
+  #task-modal .modal-content {
+    width: 100vw;
+    border-radius: 20px 20px 0 0;
+    background: #1c1c1e;
+    padding: 20px 18px;
+    margin-top: auto;
+  }
+
+  .mobile-today-btn {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 28;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 38px;
+    padding: 0 14px 0 10px;
+    background: #303038;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    color: #e0e0e4;
+    font-size: 0.86rem;
+    font-weight: 600;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    cursor: pointer;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+  }
+  
+  .mobile-today-btn:active {
+    background: #3c3c44;
+  }
+
+  .mobile-today-btn.hidden {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
   }
 }
