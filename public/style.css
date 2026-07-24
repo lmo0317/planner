@@ -1093,17 +1093,6 @@ input[type="color"]::-webkit-color-swatch {
 
 /* Responsiveness */
 @media (max-width: 1024px) {
-  .app-container {
-    flex-direction: column;
-    overflow: auto;
-  }
-  .sidebar {
-    width: 100%;
-    height: auto;
-  }
-  .main-content {
-    height: 600px;
-  }
   .list-container {
     flex-direction: column;
   }
@@ -1576,7 +1565,7 @@ input[type="color"]::-webkit-color-swatch {
 }
 
 /* Mobile-first calendar layout */
-@media (max-width: 768px) {
+@media (max-width: 1024px) {
   body {
     min-height: 100svh;
     overflow-x: hidden;
@@ -1842,7 +1831,7 @@ input[type="color"]::-webkit-color-swatch {
   display: none;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 1024px) {
   body {
     background: #171719;
   }
@@ -2100,10 +2089,10 @@ input[type="color"]::-webkit-color-swatch {
     position: fixed;
     left: 12px;
     right: 12px;
-    bottom: 78px;
+    bottom: 24px;
     z-index: 40;
     width: auto;
-    max-height: calc(100svh - 96px);
+    max-height: calc(100svh - 48px);
     overflow-y: auto;
     background: #242426;
     border: 1px solid rgba(255,255,255,0.08);
