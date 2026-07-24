@@ -2195,20 +2195,21 @@ function renderDay() {
     return dayStringStr >= start && dayStringStr <= end;
   });
 
-  // Group into all-day and hourly slots
+  // Group into all-day and 30-minute slots (48 slots)
   const allDayTodos = [];
-  const hourlySlots = Array.from({ length: 24 }, () => []);
+  const halfHourSlots = Array.from({ length: 48 }, () => []);
   
   dayTodos.forEach(todo => {
     const isAllDay = todo.allDay || (todo.startDate.substring(0, 10) < todo.endDate.substring(0, 10));
     if (isAllDay) {
       allDayTodos.push(todo);
     } else {
-      let startHour = 0;
+      let slotIndex = 0;
       if (todo.startDate.substring(0, 10) === dayStringStr) {
-        startHour = new Date(todo.startDate).getHours();
+        const dObj = new Date(todo.startDate);
+        slotIndex = dObj.getHours() * 2 + (dObj.getMinutes() >= 30 ? 1 : 0);
       }
-      hourlySlots[startHour].push(todo);
+      halfHourSlots[slotIndex].push(todo);
     }
   });
 
@@ -2237,33 +2238,39 @@ function renderDay() {
     timelineGrid.appendChild(allDayRow);
   }
 
-  // Render 24 Hours
-  for (let hour = 0; hour < 24; hour++) {
+  // Render 48 Slots (30-minute intervals)
+  for (let slotIdx = 0; slotIdx < 48; slotIdx++) {
+    const hour = Math.floor(slotIdx / 2);
+    const minute = (slotIdx % 2) * 30;
+    const hourStr = String(hour).padStart(2, '0');
+    const minuteStr = String(minute).padStart(2, '0');
+    
     const row = document.createElement('div');
     row.classList.add('day-timeline-row');
-    row.setAttribute('data-hour', hour);
+    row.setAttribute('data-slot', slotIdx);
     
     const label = document.createElement('div');
     label.classList.add('day-timeline-time-label');
-    label.textContent = `${String(hour).padStart(2, '0')}:00`;
+    label.textContent = `${hourStr}:${minuteStr}`;
     
     const slot = document.createElement('div');
     slot.classList.add('day-timeline-slot');
     
-    // Fill slot with events starting at this hour
-    const slotTodos = hourlySlots[hour];
+    // Fill slot with events starting in this 30-minute block
+    const slotTodos = halfHourSlots[slotIdx];
     slotTodos.forEach(todo => {
       const card = createDayEventCard(todo);
       slot.appendChild(card);
     });
     
-    // Clicking slot opens modal pre-filled with this hour
+    // Clicking slot opens modal pre-filled with this 30-minute block
     slot.addEventListener('click', (e) => {
       if (e.target === slot) {
-        const startHourStr = String(hour).padStart(2, '0');
-        const endHourStr = String((hour + 1) % 24).padStart(2, '0');
-        const startIso = `${dayStringStr}T${startHourStr}:00`;
-        const endIso = `${dayStringStr}T${endHourStr}:00`;
+        const nextHour = minute === 30 ? (hour + 1) % 24 : hour;
+        const nextMinute = minute === 30 ? 0 : 30;
+        
+        const startIso = `${dayStringStr}T${hourStr}:${minuteStr}`;
+        const endIso = `${dayStringStr}T${String(nextHour).padStart(2, '0')}:${String(nextMinute).padStart(2, '0')}`;
         
         openModal(null, startIso, endIso);
       }
@@ -2276,12 +2283,23 @@ function renderDay() {
 
   dayGrid.appendChild(timelineGrid);
 
-  // Auto-scroll timeline to current hour or first event
+  // Auto-scroll timeline to current slot or first event
   setTimeout(() => {
-    const activeHour = dayTodos.length > 0 
-      ? (dayTodos.find(t => !t.allDay)?.startDate ? new Date(dayTodos.find(t => !t.allDay).startDate).getHours() : new Date().getHours())
-      : new Date().getHours();
-    const rowEl = timelineGrid.querySelector(`.day-timeline-row[data-hour="${Math.max(0, activeHour - 1)}"]`);
+    let activeSlot = 0;
+    if (dayTodos.length > 0) {
+      const firstNonAllDay = dayTodos.find(t => !t.allDay);
+      if (firstNonAllDay && firstNonAllDay.startDate) {
+        const dObj = new Date(firstNonAllDay.startDate);
+        activeSlot = dObj.getHours() * 2 + (dObj.getMinutes() >= 30 ? 1 : 0);
+      } else {
+        const now = new Date();
+        activeSlot = now.getHours() * 2 + (now.getMinutes() >= 30 ? 1 : 0);
+      }
+    } else {
+      const now = new Date();
+      activeSlot = now.getHours() * 2 + (now.getMinutes() >= 30 ? 1 : 0);
+    }
+    const rowEl = timelineGrid.querySelector(`.day-timeline-row[data-slot="${Math.max(0, activeSlot - 2)}"]`);
     if (rowEl) {
       rowEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
