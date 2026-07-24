@@ -2178,36 +2178,37 @@ input[type="color"]::-webkit-color-swatch {
   }
 
   .mobile-fab-menu-container {
-    position: absolute;
-    right: 24px;
-    bottom: 120px; /* Above the larger FAB button */
+    position: fixed;
+    right: 28px;
+    bottom: 130px; /* Positioned fixed relative to viewport, above the larger FAB */
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 18px;
     align-items: flex-end;
     width: auto;
     max-width: 320px;
+    z-index: 31;
   }
 
   .mobile-menu-ai-btn {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    width: 240px;
-    padding: 16px 20px;
+    width: 280px;
+    padding: 20px 24px;
     background: #242428;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 999px;
     color: #f2f2f5;
-    font-size: 1.08rem;
+    font-size: 1.35rem;
     font-weight: 700;
     box-shadow: 0 8px 24px rgba(0,0,0,0.35);
     cursor: pointer;
   }
   .mobile-menu-ai-btn svg,
   .mobile-menu-ai-btn img {
-    width: 24px !important;
-    height: 24px !important;
+    width: 32px !important;
+    height: 32px !important;
   }
   
   .mobile-menu-ai-btn:active {
@@ -2217,7 +2218,7 @@ input[type="color"]::-webkit-color-swatch {
   .ai-btn-left {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
   }
 
   .ai-icon-wrapper {
@@ -2233,14 +2234,14 @@ input[type="color"]::-webkit-color-swatch {
   }
   
   .ai-btn-help svg {
-    width: 18px;
-    height: 18px;
+    width: 24px;
+    height: 24px;
   }
 
   .mobile-fab-menu-list {
     display: flex;
     flex-direction: column;
-    width: 210px;
+    width: 250px;
     background: #242428;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 16px;
@@ -2251,13 +2252,13 @@ input[type="color"]::-webkit-color-swatch {
   .mobile-fab-menu-item {
     display: flex;
     align-items: center;
-    gap: 14px;
-    padding: 16px 22px;
+    gap: 16px;
+    padding: 20px 26px;
     background: transparent;
     border: 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     color: #c9c9ce;
-    font-size: 1.06rem;
+    font-size: 1.3rem;
     font-weight: 600;
     text-align: left;
     cursor: pointer;
@@ -2272,8 +2273,8 @@ input[type="color"]::-webkit-color-swatch {
   }
 
   .mobile-fab-menu-item svg {
-    width: 24px;
-    height: 24px;
+    width: 30px;
+    height: 30px;
     color: #a9a2ff;
   }
 
