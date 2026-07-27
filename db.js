@@ -66,6 +66,7 @@ async function createTodo(todoData) {
       allDay: todoData.allDay === true,
       color: todoData.color || '#4f46e5',
       priority: todoData.priority || 'medium',
+      scheduleType: todoData.scheduleType === 'kidsnote' ? 'kidsnote' : 'general',
       completed: todoData.completed || false,
       category: todoData.category || 'general',
       dateReason: todoData.dateReason || '',

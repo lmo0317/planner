@@ -69,7 +69,7 @@ body {
   font-family: 'Outfit', 'Space Grotesk', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   background-color: var(--bg-primary);
   color: var(--text-primary);
-  min-height: 100vh;
+  min-height: 100dvh;
   overflow: hidden;
   position: relative;
   transition: background-color 0.5s ease;
@@ -164,8 +164,8 @@ body {
 /* App Layout */
 .app-container {
   display: flex;
-  height: 100vh;
-  width: 100vw;
+  height: 100dvh;
+  width: 100%;
   padding: 20px;
   gap: 20px;
 }
@@ -367,6 +367,48 @@ body {
   font-weight: 500;
 }
 
+.schedule-type-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.schedule-type-filter h3 {
+  margin-bottom: 2px;
+}
+
+.schedule-type-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 32px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.88rem;
+}
+
+.schedule-type-option:hover {
+  background: var(--border-color);
+  color: var(--text-primary);
+}
+
+.schedule-type-option input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--primary);
+}
+
+.schedule-type-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.schedule-type-dot.general { background: #6366f1; }
+.schedule-type-dot.kidsnote { background: #10b981; }
+
 .light-theme .menu-section li.active {
   background: rgba(79, 70, 229, 0.12);
   color: var(--primary);
@@ -428,6 +470,8 @@ body {
 /* Main Content Area */
 .main-content {
   flex-grow: 1;
+  min-width: 0;
+  min-height: 0;
   background: var(--bg-sidebar);
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
@@ -515,6 +559,7 @@ body {
 .view-panel {
   display: none;
   flex-grow: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -549,6 +594,7 @@ body {
   grid-template-columns: repeat(7, 1fr);
   grid-template-rows: repeat(6, 1fr);
   flex-grow: 1;
+  min-height: 0;
   background: rgba(0, 0, 0, 0.02);
 }
 
@@ -647,19 +693,10 @@ body {
   flex-direction: column;
   gap: 4px;
   flex-grow: 1;
-  overflow-y: auto;
+  overflow: hidden;
   padding-bottom: 4px;
   margin-left: -8px;
   margin-right: -8px;
-}
-
-.day-events::-webkit-scrollbar {
-  width: 2px;
-}
-
-.day-events::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 2px;
 }
 
 /* Event Item style */
@@ -709,6 +746,109 @@ body {
 
 .event-more-label:hover {
   text-decoration: underline;
+}
+
+/* Day agenda modal */
+.day-agenda-modal-content {
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(720px, calc(100dvh - 32px));
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+}
+
+.day-agenda-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-right: 28px;
+}
+
+.day-agenda-kicker {
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.day-agenda-heading h2 {
+  margin-bottom: 0;
+}
+
+.day-agenda-count {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: var(--primary-glow);
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.day-agenda-list {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 20px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.day-agenda-item {
+  display: grid;
+  grid-template-columns: minmax(72px, auto) minmax(0, 1fr);
+  gap: 12px;
+  width: 100%;
+  padding: 13px;
+  border: 1px solid var(--border-color);
+  border-left: 4px solid var(--agenda-color);
+  border-radius: 10px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.day-agenda-item:hover {
+  background: var(--bg-card-hover);
+}
+
+.day-agenda-item.completed {
+  opacity: 0.55;
+}
+
+.day-agenda-time {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.day-agenda-details {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.day-agenda-details strong,
+.day-agenda-details small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.day-agenda-details small {
+  color: var(--text-secondary);
+}
+
+.day-agenda-empty {
+  margin: auto 0;
+  color: var(--text-muted);
+  text-align: center;
 }
 
 .event-item.period-event {
@@ -1327,6 +1467,223 @@ input[type="color"]::-webkit-color-swatch {
   line-height: 1.5;
 }
 
+/* Fluid layout guardrails: avoid viewport overflow and fixed-height clipping. */
+@media (min-width: 901px) and (max-width: 1120px) {
+  .app-container {
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .sidebar {
+    width: 232px;
+    padding: 18px;
+  }
+
+  .main-header {
+    padding: 18px;
+  }
+
+  .header-left {
+    gap: 12px;
+  }
+
+  .search-box input {
+    width: 160px;
+  }
+
+  .search-box input:focus {
+    width: 190px;
+  }
+}
+
+@media (max-width: 900px) {
+  body,
+  .app-container,
+  .main-content {
+    min-height: 100dvh;
+  }
+
+  .app-container,
+  .main-content {
+    height: 100dvh;
+  }
+
+  .mobile-topbar {
+    height: clamp(68px, 12dvh, 88px);
+    padding: max(10px, env(safe-area-inset-top)) 12px 8px;
+    grid-template-columns: 40px minmax(0, 1fr) 40px;
+  }
+
+  .mobile-nav-container {
+    min-width: 0;
+    gap: clamp(4px, 2vw, 14px);
+  }
+
+  .mobile-nav-arrow-btn {
+    width: clamp(34px, 10vw, 46px);
+    height: clamp(34px, 10vw, 46px);
+    flex: 0 0 auto;
+  }
+
+  .mobile-nav-arrow-btn svg {
+    width: clamp(22px, 6vw, 30px) !important;
+    height: clamp(22px, 6vw, 30px) !important;
+  }
+
+  #mobile-current-view-title {
+    min-width: 0;
+    font-size: clamp(1.1rem, 5vw, 1.55rem);
+    white-space: nowrap;
+  }
+
+  .mobile-title-subtitle {
+    font-size: clamp(0.7rem, 2.8vw, 0.9rem);
+  }
+
+  #calendar-view,
+  #week-view,
+  #day-view,
+  #list-view {
+    min-height: 0;
+  }
+
+  .calendar-days {
+    flex: 0 0 auto;
+    padding: clamp(8px, 2.5vw, 14px) 4px;
+    font-size: clamp(0.8rem, 3.8vw, 1rem);
+  }
+
+  .calendar-grid {
+    height: auto;
+    min-height: 0;
+    grid-template-rows: repeat(6, minmax(0, 1fr));
+  }
+
+  .calendar-day {
+    min-height: 0;
+    padding: clamp(2px, 1vw, 6px) 2px;
+  }
+
+  .calendar-date-header {
+    min-height: clamp(28px, 8vw, 42px);
+  }
+
+  .day-number {
+    flex-basis: clamp(28px, 8vw, 42px);
+    width: clamp(28px, 8vw, 42px);
+    height: clamp(28px, 8vw, 42px);
+    font-size: clamp(0.82rem, 4vw, 1.2rem);
+  }
+
+  .holiday-name {
+    font-size: clamp(0.56rem, 2.4vw, 0.78rem);
+  }
+
+  .day-events {
+    gap: 2px;
+    margin-top: 2px;
+  }
+
+  .event-item,
+  .event-lane-placeholder,
+  .event-more-label {
+    flex-basis: clamp(18px, 6vw, 28px);
+    min-height: clamp(18px, 6vw, 28px);
+  }
+
+  .event-item {
+    margin-left: 1px;
+    margin-right: 1px;
+    padding: 2px 4px;
+    font-size: clamp(0.55rem, 2.5vw, 0.76rem);
+    line-height: 1.2;
+  }
+
+  .event-more-label {
+    padding: 2px 4px;
+    font-size: clamp(0.56rem, 2.6vw, 0.78rem);
+    line-height: 1.2;
+  }
+
+  .mobile-fab {
+    right: max(16px, env(safe-area-inset-right));
+    bottom: max(16px, env(safe-area-inset-bottom));
+    width: clamp(52px, 15vw, 64px);
+    height: clamp(52px, 15vw, 64px);
+  }
+
+  .mobile-fab svg {
+    width: clamp(24px, 7vw, 30px) !important;
+    height: clamp(24px, 7vw, 30px) !important;
+  }
+
+  .mobile-fab-overlay {
+    width: 100%;
+    height: 100dvh;
+  }
+
+  .mobile-fab-menu-container {
+    right: max(16px, env(safe-area-inset-right));
+    bottom: calc(max(16px, env(safe-area-inset-bottom)) + clamp(64px, 18vw, 78px));
+    max-width: calc(100vw - 32px);
+  }
+
+  .mobile-menu-ai-btn,
+  .mobile-fab-menu-list {
+    width: min(280px, calc(100vw - 32px));
+  }
+}
+
+.ai-input-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.ai-input-wrapper:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+.ai-input-label {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+#ai-schedule-text,
+.ai-display-title {
+  flex: 1;
+  min-width: 0;
+}
+
+#ai-schedule-text {
+  width: 100%;
+  height: 72px;
+  min-height: 72px;
+  max-height: 72px;
+  padding: 0;
+  resize: none;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+#ai-schedule-text:focus {
+  border: 0;
+  box-shadow: none;
+}
+
+.bottom-sheet-handle {
+  display: none;
+}
+
 .ai-example-list {
   display: flex;
   align-items: center;
@@ -1493,6 +1850,23 @@ input[type="color"]::-webkit-color-swatch {
   font-size: 0.78rem;
   line-height: 1.45;
   text-align: center;
+}
+
+.kidsnote-start-date-group {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.kidsnote-start-date-group input[type="date"] {
+  max-width: 240px;
+}
+
+.kidsnote-start-date-help {
+  margin-top: 7px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
 }
 
 .kidsnote-help {
@@ -1739,6 +2113,7 @@ input[type="color"]::-webkit-color-swatch {
 .day-timeline-grid {
   display: flex;
   flex-direction: column;
+  position: relative;
   margin-top: 20px;
   flex-grow: 1;
   overflow-y: auto;
@@ -1818,6 +2193,36 @@ input[type="color"]::-webkit-color-swatch {
 .day-timeline-slot .day-event-card:active {
   transform: scale(0.98);
   filter: brightness(0.9);
+}
+
+.day-timeline-events-overlay {
+  position: absolute;
+  right: 8px;
+  bottom: 0;
+  min-height: 1824px;
+  pointer-events: none;
+}
+
+.day-timeline-event-card {
+  position: absolute;
+  margin: 0;
+  padding: 12px 16px;
+  border-radius: 14px;
+  color: white;
+  font-size: 1.25rem;
+  font-weight: 700;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+  pointer-events: auto;
+  z-index: 2;
+}
+
+.day-timeline-event-card .day-event-card-time {
+  font-size: 0.95rem;
+  margin-top: 4px;
 }
 
 /* Highlight current hour in Day view */
@@ -1940,7 +2345,7 @@ input[type="color"]::-webkit-color-swatch {
 }
 
 /* Mobile-first calendar layout */
-@media (max-width: 1024px), (orientation: portrait) {
+@media (max-width: 900px) {
   body {
     min-height: 100svh;
     overflow-x: hidden;
@@ -2375,7 +2780,7 @@ input[type="color"]::-webkit-color-swatch {
   display: none;
 }
 
-@media (max-width: 1024px), (orientation: portrait) {
+@media (max-width: 900px) {
   body {
     background: #171719;
   }
@@ -2853,24 +3258,27 @@ input[type="color"]::-webkit-color-swatch {
 
   .ai-input-wrapper {
     display: flex;
-    align-items: center;
-    gap: 12px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
     background: transparent;
-    padding: 8px 0 16px;
+    padding: 8px 0 14px;
     border-bottom: 1px solid rgba(255,255,255,0.06);
     margin-bottom: 16px;
   }
 
-  .ai-logo-container {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
+  .ai-input-wrapper:focus-within {
+    border-color: rgba(255,255,255,0.16);
+    box-shadow: none;
+  }
+
+  .ai-input-label {
+    color: #8c8c92;
+    font-size: 0.76rem;
   }
 
   #ai-schedule-text {
-    flex: 1;
+    width: 100%;
     background: transparent;
     border: 0;
     color: #ffffff;
@@ -2878,8 +3286,10 @@ input[type="color"]::-webkit-color-swatch {
     font-weight: 500;
     resize: none;
     outline: none;
-    padding: 4px 0;
-    min-height: 28px;
+    padding: 2px 0;
+    min-height: 52px;
+    height: 52px;
+    max-height: 52px;
     line-height: 1.35;
   }
 
@@ -3269,4 +3679,35 @@ input[type="color"]::-webkit-color-swatch {
     color: #a9a2ff !important; /* Glow time text */
     font-weight: 900;
   }
+}
+
+/* Final responsive overrides: these follow the visual theme rules above. */
+@media (max-width: 900px) {
+  body, .app-container, .main-content { min-height: 100dvh; }
+  .app-container, .main-content { height: 100dvh; }
+
+  .mobile-topbar { height: clamp(68px, 12dvh, 88px); padding: max(10px, env(safe-area-inset-top)) 12px 8px; grid-template-columns: 40px minmax(0, 1fr) 40px; }
+  .mobile-nav-container { min-width: 0; gap: clamp(4px, 2vw, 14px); }
+  .mobile-nav-arrow-btn { width: clamp(34px, 10vw, 46px); height: clamp(34px, 10vw, 46px); flex: 0 0 auto; }
+  .mobile-nav-arrow-btn svg { width: clamp(22px, 6vw, 30px) !important; height: clamp(22px, 6vw, 30px) !important; }
+  #mobile-current-view-title { min-width: 0; font-size: clamp(1.1rem, 5vw, 1.55rem); white-space: nowrap; }
+  .mobile-title-subtitle { font-size: clamp(0.7rem, 2.8vw, 0.9rem); }
+
+  #calendar-view, #week-view, #day-view, #list-view { min-height: 0; }
+  .calendar-days { flex: 0 0 auto; padding: clamp(8px, 2.5vw, 14px) 4px; font-size: clamp(0.8rem, 3.8vw, 1rem); }
+  .calendar-grid { height: auto; min-height: 0; grid-template-rows: repeat(6, minmax(0, 1fr)); }
+  .calendar-day { min-height: 0; padding: clamp(2px, 1vw, 6px) 2px; }
+  .calendar-date-header { min-height: clamp(28px, 8vw, 42px); }
+  .day-number { flex-basis: clamp(28px, 8vw, 42px); width: clamp(28px, 8vw, 42px); height: clamp(28px, 8vw, 42px); font-size: clamp(0.82rem, 4vw, 1.2rem); }
+  .holiday-name { font-size: clamp(0.56rem, 2.4vw, 0.78rem); }
+  .day-events { gap: 2px; margin-top: 2px; }
+  .event-item, .event-lane-placeholder, .event-more-label { flex-basis: clamp(18px, 6vw, 28px); min-height: clamp(18px, 6vw, 28px); }
+  .event-item { margin-left: 1px; margin-right: 1px; padding: 2px 4px; font-size: clamp(0.55rem, 2.5vw, 0.76rem); line-height: 1.2; }
+  .event-more-label { padding: 2px 4px; font-size: clamp(0.56rem, 2.6vw, 0.78rem); line-height: 1.2; }
+
+  .mobile-fab { right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom)); width: clamp(52px, 15vw, 64px); height: clamp(52px, 15vw, 64px); }
+  .mobile-fab svg { width: clamp(24px, 7vw, 30px) !important; height: clamp(24px, 7vw, 30px) !important; }
+  .mobile-fab-overlay { width: 100%; height: 100dvh; }
+  .mobile-fab-menu-container { right: max(16px, env(safe-area-inset-right)); bottom: calc(max(16px, env(safe-area-inset-bottom)) + clamp(64px, 18vw, 78px)); max-width: calc(100vw - 32px); }
+  .mobile-menu-ai-btn, .mobile-fab-menu-list { width: min(280px, calc(100vw - 32px)); }
 }

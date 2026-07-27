@@ -11,7 +11,7 @@
   <!-- Lucide Icons CDN -->
   <script src="https://unpkg.com/lucide@latest"></script>
   <!-- Tailwind/Vanilla CSS (Vanilla CSS will be structured in style.css) -->
-  <link rel="stylesheet" href="style.css?v=20260726-1">
+  <link rel="stylesheet" href="style.css?v=20260727-6">
 </head>
 <body class="dark-theme">
   <div class="glow-bg">
@@ -50,6 +50,20 @@
             </li>
           </ul>
         </div>
+
+        <section class="menu-section schedule-type-filter" aria-label="일정 종류 필터">
+          <h3>표시할 일정</h3>
+          <label class="schedule-type-option">
+            <input type="checkbox" value="general" checked>
+            <span class="schedule-type-dot general"></span>
+            <span>일반 일정</span>
+          </label>
+          <label class="schedule-type-option">
+            <input type="checkbox" value="kidsnote" checked>
+            <span class="schedule-type-dot kidsnote"></span>
+            <span>키즈노트 일정</span>
+          </label>
+        </section>
 
         <div class="sidebar-actions-section" style="margin-top: 30px;">
           <button id="btn-new-task" class="btn btn-primary" style="width: 100%; margin-bottom: 14px;">
@@ -226,26 +240,6 @@
           </div>
         </div>
 
-        <div class="form-row">
-          <div class="form-group">
-            <label for="task-category">카테고리</label>
-            <select id="task-category">
-              <option value="general">기타 (General)</option>
-              <option value="work">업무 (Work)</option>
-              <option value="personal">개인 (Personal)</option>
-              <option value="study">학습 (Study)</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label for="task-priority">우선순위</label>
-            <select id="task-priority">
-              <option value="low">낮음</option>
-              <option value="medium" selected>보통</option>
-              <option value="high">높음</option>
-            </select>
-          </div>
-        </div>
-
         <div class="form-group">
           <label for="task-color">색상 테마</label>
           <div class="color-picker-wrapper">
@@ -311,6 +305,11 @@
           </div>
           <p class="kidsnote-login-help">로그인 후 자녀 정보와 알림장 접근 권한을 자동으로 확인합니다.</p>
         </div>
+        <div class="form-group kidsnote-start-date-group">
+          <label for="kidsnote-start-date">가져오기 시작일</label>
+          <input id="kidsnote-start-date" type="date" required>
+          <p class="kidsnote-start-date-help">선택한 날짜보다 이전 일정은 후보에 표시되거나 등록되지 않습니다.</p>
+        </div>
       </div>
 
       <div id="kidsnote-loading" class="import-state-panel hidden">
@@ -351,25 +350,9 @@
       <p class="ai-schedule-guide desktop-only">원하는 일정을 자연스럽게 입력하면 등록 후보를 만들어드립니다. 시간이 없으면 종일 일정으로 판단합니다.</p>
 
       <div class="ai-input-wrapper">
-        <div class="ai-logo-container">
-          <svg class="ai-logo-svg" viewBox="0 0 24 24" width="22" height="22">
-            <defs>
-              <linearGradient id="ai-logo-grad-m" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="#2b5cff" />
-                <stop offset="50%" stop-color="#9b51e0" />
-                <stop offset="100%" stop-color="#ff4081" />
-              </linearGradient>
-            </defs>
-            <path fill="url(#ai-logo-grad-m)" d="M8.5 6C6.5 6 5 7.5 5 9.5C5 12.5 8.5 16 12 19.5C15.5 16 19 12.5 19 9.5C19 7.5 17.5 6 15.5 6C13.8 6 12.5 7.2 12 8.5C11.5 7.2 10.2 6 8.5 6Z" />
-          </svg>
-        </div>
-        
-        <textarea id="ai-schedule-text" rows="1" placeholder="일정을 자연스럽게 입력하세요 (예: 내일 10시 축구)"></textarea>
+        <label class="ai-input-label" for="ai-schedule-text">일정 내용</label>
+        <textarea id="ai-schedule-text" rows="1" placeholder="예: 내일 오전 10시 축구"></textarea>
         <div id="ai-schedule-display-title" class="ai-display-title hidden"></div>
-        
-        <button type="button" class="ai-mic-btn" aria-label="음성 인식">
-          <i data-lucide="mic"></i>
-        </button>
       </div>
 
       <div id="ai-schedule-input-panel">
@@ -404,6 +387,25 @@
     </div>
   </div>
 
+  <!-- Day agenda modal -->
+  <div id="day-agenda-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="day-agenda-title">
+    <div class="modal-content glass day-agenda-modal-content">
+      <button type="button" id="close-day-agenda-modal" class="close-modal" aria-label="닫기"><i data-lucide="x"></i></button>
+      <div class="day-agenda-heading">
+        <div>
+          <p class="day-agenda-kicker">하루 일정</p>
+          <h2 id="day-agenda-title">일정</h2>
+        </div>
+        <span id="day-agenda-count" class="day-agenda-count">0개</span>
+      </div>
+      <div id="day-agenda-list" class="day-agenda-list"></div>
+      <div class="modal-footer">
+        <button type="button" id="btn-day-agenda-close" class="btn btn-secondary">닫기</button>
+        <button type="button" id="btn-day-agenda-add" class="btn btn-primary"><i data-lucide="plus"></i> 일정 추가</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Notification Toast -->
   <div id="toast" class="toast">
     <div class="toast-content">
@@ -412,6 +414,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20260718-11"></script>
+  <script src="app.js?v=20260727-5"></script>
 </body>
 </html>

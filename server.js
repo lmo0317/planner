@@ -720,6 +720,18 @@ function normalizeCandidateText(value) {
     .replace(/[^\p{L}\p{N}]/gu, '');
 }
 
+function normalizeKidsNoteEventIdentity(value) {
+  return normalizeCandidateText(value)
+    // These words describe the notice, not the actual calendar event.
+    .replace(/(일정|기간|안내|공지|알림|운영|실시|예정|관련|안내문|공문|입니다|이에요|입니다)/g, '');
+}
+
+function getKidsNoteEventType(value) {
+  const title = String(value || '');
+  const match = title.match(/방학|개학|휴원|휴관|운동회|발표회|오리엔테이션|설명회|견학|소풍|체험|검진|검사|예방접종|입학|졸업|상담|수업|생일|파티|공연|관람/);
+  return match ? match[0] : '';
+}
+
 function diceSimilarity(left, right) {
   if (left === right) return 1;
   if (left.length < 2 || right.length < 2) return 0;
@@ -750,11 +762,28 @@ function areSameKidsNoteCandidate(left, right) {
   if (!leftTitle || !rightTitle) return false;
   if (leftTitle === rightTitle) return true;
 
+  const leftIdentity = normalizeKidsNoteEventIdentity(left.title);
+  const rightIdentity = normalizeKidsNoteEventIdentity(right.title);
+  if (leftIdentity && rightIdentity && leftIdentity === rightIdentity) return true;
+
+  // A shared event type on the exact same period is a duplicate even when one
+  // notice uses a longer explanatory title (for example, an event and its notice).
+  const leftEventType = getKidsNoteEventType(left.title);
+  const rightEventType = getKidsNoteEventType(right.title);
+  if (leftEventType && leftEventType === rightEventType) return true;
+
   const shorter = leftTitle.length <= rightTitle.length ? leftTitle : rightTitle;
   const longer = shorter === leftTitle ? rightTitle : leftTitle;
   const containmentRatio = shorter.length / longer.length;
   if (shorter.length >= 4 && longer.includes(shorter) && containmentRatio >= 0.5) return true;
   if (diceSimilarity(leftTitle, rightTitle) >= 0.66) return true;
+
+  if (leftIdentity && rightIdentity) {
+    const identityShorter = leftIdentity.length <= rightIdentity.length ? leftIdentity : rightIdentity;
+    const identityLonger = identityShorter === leftIdentity ? rightIdentity : leftIdentity;
+    if (identityShorter.length >= 3 && identityLonger.includes(identityShorter)) return true;
+    if (diceSimilarity(leftIdentity, rightIdentity) >= 0.58) return true;
+  }
 
   const leftEvidence = normalizeCandidateText(left.evidence);
   const rightEvidence = normalizeCandidateText(right.evidence);
@@ -1528,7 +1557,7 @@ function normalizeKidsNoteEvents(rawEvents, referenceDate) {
     .filter(Boolean));
 }
 
-const KIDSNOTE_ACTION_KEYWORD_REGEX = /(준비물|지참|제출|신청|마감|납부|입금|행사|견학|소풍|체험|방학|휴원|휴관|수업|상담|검사|검진|예방접종|입학|졸업|발표회|운동회|오리엔테이션|설명회|참석|등원|하원|예약|방문|촬영|생일|파티|공연|관람|모임)/i;
+const KIDSNOTE_ACTION_KEYWORD_REGEX = /(준비물|지참|제출|신청|마감|납부|입금|행사|견학|소풍|체험|방학|개학|휴원|휴관|수업|상담|검사|검진|예방접종|입학|졸업|발표회|운동회|오리엔테이션|설명회|참석|등원|하원|예약|방문|촬영|생일|파티|공연|관람|모임)/i;
 
 function buildKidsNoteFallbackEvents(formattedReports, referenceDate) {
   const fallbackOffset = getBaseOffset(referenceDate);
@@ -1567,7 +1596,7 @@ function buildKidsNoteFallbackEvents(formattedReports, referenceDate) {
 }
 
 async function parseKidsNoteReports(reports, referenceDate, options = {}) {
-  const scheduleNoticePattern = /(오늘|내일|모레|이번\s*주|다음\s*주|다다음\s*주|월요일|화요일|수요일|목요일|금요일|토요일|일요일|\d{1,2}\s*월\s*\d{1,2}\s*일|\d{1,2}[./-]\d{1,2}|까지|마감|제출|신청|준비물|지참|행사|견학|소풍|방학|휴원|수업|상담|검사|예방접종|입학|졸업|발표회|운동회)/i;
+  const scheduleNoticePattern = /(오늘|내일|모레|이번\s*주|다음\s*주|다다음\s*주|월요일|화요일|수요일|목요일|금요일|토요일|일요일|\d{1,2}\s*월\s*\d{1,2}\s*일|\d{1,2}[./-]\d{1,2}|까지|마감|제출|신청|준비물|지참|행사|견학|소풍|방학|개학|휴원|수업|상담|검사|예방접종|입학|졸업|발표회|운동회)/i;
   const formatted = reports
     .map(formatKidsNoteReport)
     .filter(Boolean)
@@ -1605,7 +1634,7 @@ async function parseKidsNoteReports(reports, referenceDate, options = {}) {
 Current reference time: ${referenceDate}
 
 RULES:
-1. Extract every explicit event date, attendance date, submission deadline, payment deadline, reservation, class, trip, holiday, or preparation deadline.
+1. Extract every explicit event date, attendance date, submission deadline, payment deadline, reservation, class, trip, school vacation, school reopening (개학), holiday, or preparation deadline.
 2. The report's written_at is the publication date, not the event date. Never create an event on written_at unless the content explicitly says 오늘 and written_at is available.
 3. Resolve relative Korean dates from that report's written_at. Infer a missing year from written_at using the nearest future occurrence that fits the notice context.
 4. If a date is clear but no time is stated, create an all-day event with 00:00:00 through 23:59:59. Never invent a time. If a start time is stated but no end time or duration is stated, set endDate exactly one hour after startDate.
@@ -1618,6 +1647,8 @@ RULES:
 11. dateReason must explain in Korean which notice expression produced the date. evidence must quote a short relevant Korean excerpt. Copy the enclosing KIDSNOTE_REPORT id into sourceId.
 12. confidence is 0 to 1; use below 0.65 when ambiguous.
 13. DATE_HINT is calculated deterministically from that report's written_at and is authoritative. Copy its resolved date exactly for the matching relative expression.
+14. Before returning JSON, perform a duplicate pass across every event you plan to emit. One real-world occurrence must be one event only: consolidate repeated notices, paraphrases, and a title plus its explanatory notice into a single candidate.
+15. Never emit two candidates for the same date range unless they are clearly different activities or obligations. Use a short canonical title that names the event itself, excluding notice words such as 안내, 공지, 일정, 기간, 운영, or 실시.
 
 Return JSON only.`;
 
@@ -1670,9 +1701,24 @@ Return JSON only.`;
   return { events, reportCount: reports.length, analyzedCount };
 }
 
+function normalizeKidsNoteImportStartDate(value) {
+  const date = String(value || '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '';
+}
+
+function filterKidsNoteEventsByImportStartDate(result, importStartDate) {
+  if (!importStartDate || !result || !Array.isArray(result.events)) return result;
+  return {
+    ...result,
+    events: result.events.filter(event => String(event?.startDate || '').slice(0, 10) >= importStartDate)
+  };
+}
+
 app.post('/api/kidsnote/import', async (req, res) => {
   try {
-    const { mode = 'json', childId, cookie, data, baseDate } = req.body || {};
+    const { mode = 'json', childId, cookie, data, baseDate, importStartDate: rawImportStartDate } = req.body || {};
+    const importStartDate = normalizeKidsNoteImportStartDate(rawImportStartDate);
+    if (rawImportStartDate && !importStartDate) return res.status(400).json({ error: '가져오기 시작일 형식이 올바르지 않습니다.' });
     let reports;
     if (mode === 'saved_session') {
       const session = getSavedKidsNoteSession(req);
@@ -1685,7 +1731,7 @@ app.post('/api/kidsnote/import', async (req, res) => {
     }
     if (!reports.length) return res.status(400).json({ error: '분석할 키즈노트 알림장 데이터가 없습니다.' });
     const result = await parseKidsNoteReports(reports, baseDate || new Date().toISOString());
-    res.json(result);
+    res.json(filterKidsNoteEventsByImportStartDate(result, importStartDate));
   } catch (err) {
     console.error('KidsNote import error:', err.message);
     res.status(err.status || 500).json({ error: err.message || '키즈노트 데이터를 처리하지 못했습니다.' });
@@ -1695,6 +1741,9 @@ app.post('/api/kidsnote/import', async (req, res) => {
 app.post('/api/kidsnote/import/start', (req, res) => {
   const session = getSavedKidsNoteSession(req);
   if (!session) return res.status(401).json({ error: '저장된 키즈노트 로그인이 없거나 만료되었습니다.' });
+  const rawImportStartDate = req.body?.importStartDate;
+  const importStartDate = normalizeKidsNoteImportStartDate(rawImportStartDate);
+  if (rawImportStartDate && !importStartDate) return res.status(400).json({ error: '가져오기 시작일 형식이 올바르지 않습니다.' });
 
   const jobId = crypto.randomBytes(24).toString('base64url');
   const job = {
@@ -1703,6 +1752,7 @@ app.post('/api/kidsnote/import/start', (req, res) => {
     createdAt: Date.now(),
     result: null,
     progress: { completedChunks: 0, totalChunks: 0 },
+    importStartDate,
     error: ''
   };
   kidsNoteAnalysisJobs.set(jobId, job);
@@ -1716,13 +1766,14 @@ app.post('/api/kidsnote/import/start', (req, res) => {
       if (!reports.length) throw new Error('분석할 키즈노트 알림장 데이터가 없습니다.');
       job.result = await parseKidsNoteReports(reports, req.body?.baseDate || new Date().toISOString(), {
         onProgress: partialResult => {
-          job.result = partialResult;
+          job.result = filterKidsNoteEventsByImportStartDate(partialResult, importStartDate);
           job.progress = {
             completedChunks: partialResult.completedChunks,
             totalChunks: partialResult.totalChunks
           };
         }
       });
+      job.result = filterKidsNoteEventsByImportStartDate(job.result, importStartDate);
       job.status = 'completed';
     } catch (error) {
       console.error('KidsNote background analysis error:', error.message);

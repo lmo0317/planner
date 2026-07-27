@@ -3,9 +3,8 @@ let currentViewDate = new Date();
 let currentView = 'month'; // 'month' or 'list'
 let isTransitioning = false;
 let todos = [];
-let selectedCategory = 'all';
-let selectedPriority = 'all';
 let searchQueryParams = '';
+let visibleScheduleTypes = new Set(['general', 'kidsnote']);
 const holidayCache = new Map();
 const holidayRequests = new Map();
 let calendarWeekLaneCache = new Map();
@@ -24,9 +23,8 @@ const taskForm = document.getElementById('task-form');
 const btnDeleteTask = document.getElementById('btn-delete-task');
 const themeToggle = document.getElementById('theme-toggle');
 const viewSelectors = document.querySelectorAll('.nav-menu [data-view]');
-const categoryFilters = document.querySelectorAll('#category-filters li');
-const priorityFilters = document.querySelectorAll('#priority-filters li');
 const searchInput = document.getElementById('search-input');
+const scheduleTypeFilters = document.querySelectorAll('.schedule-type-filter input[type="checkbox"]');
 const toastElement = document.getElementById('toast');
 const mobileFab = document.getElementById('mobile-fab');
 const mobileMenuButton = document.getElementById('mobile-menu-button');
@@ -36,6 +34,14 @@ const mobileNavItems = document.querySelectorAll('[data-mobile-view]');
 const mobileCurrentViewTitle = document.getElementById('mobile-current-view-title');
 const mobilePrevBtn = document.getElementById('mobile-prev-btn');
 const mobileNextBtn = document.getElementById('mobile-next-btn');
+const dayAgendaModal = document.getElementById('day-agenda-modal');
+const closeDayAgendaModalBtn = document.getElementById('close-day-agenda-modal');
+const btnDayAgendaClose = document.getElementById('btn-day-agenda-close');
+const btnDayAgendaAdd = document.getElementById('btn-day-agenda-add');
+const dayAgendaTitle = document.getElementById('day-agenda-title');
+const dayAgendaCount = document.getElementById('day-agenda-count');
+const dayAgendaList = document.getElementById('day-agenda-list');
+let dayAgendaDate = null;
 
 // Views Panels
 const calendarViewPanel = document.getElementById('calendar-view');
@@ -92,6 +98,7 @@ const btnKidsNoteLogin = document.getElementById('btn-kidsnote-login');
 const btnKidsNoteLogout = document.getElementById('btn-kidsnote-logout');
 const kidsNoteConnectionStatus = document.getElementById('kidsnote-connection-status');
 const kidsNoteConnectionText = document.getElementById('kidsnote-connection-text');
+const kidsNoteStartDate = document.getElementById('kidsnote-start-date');
 const kidsNoteLoading = document.getElementById('kidsnote-loading');
 const kidsNotePreview = document.getElementById('kidsnote-preview');
 const kidsNoteList = document.getElementById('kidsnote-list');
@@ -106,6 +113,7 @@ let kidsNoteSavedEventKeys = new Set();
 
 // Initialize application
 document.addEventListener('DOMContentLoaded', () => {
+  kidsNoteStartDate.value = formatDateString(new Date());
   initTheme();
   setupEventListeners();
   setupAiScheduleEventListeners();
@@ -245,26 +253,6 @@ function setupEventListeners() {
     });
   });
 
-  // Category filters
-  categoryFilters.forEach(el => {
-    el.addEventListener('click', () => {
-      categoryFilters.forEach(c => c.classList.remove('active'));
-      el.classList.add('active');
-      selectedCategory = el.dataset.category;
-      render();
-    });
-  });
-
-  // Priority filters
-  priorityFilters.forEach(el => {
-    el.addEventListener('click', () => {
-      priorityFilters.forEach(p => p.classList.remove('active'));
-      el.classList.add('active');
-      selectedPriority = el.dataset.priority;
-      render();
-    });
-  });
-
   // Search filter
   searchInput.addEventListener('input', (e) => {
     searchQueryParams = e.target.value.toLowerCase().trim();
@@ -290,10 +278,31 @@ function setupEventListeners() {
   taskForm.addEventListener('submit', handleFormSubmit);
   btnDeleteTask.addEventListener('click', handleDeleteTask);
 
+  closeDayAgendaModalBtn.addEventListener('click', closeDayAgendaModal);
+  btnDayAgendaClose.addEventListener('click', closeDayAgendaModal);
+  btnDayAgendaAdd.addEventListener('click', () => {
+    const startIso = `${dayAgendaDate}T09:00`;
+    const endIso = `${dayAgendaDate}T10:00`;
+    closeDayAgendaModal();
+    openModal(null, startIso, endIso);
+  });
+
+  scheduleTypeFilters.forEach(filter => {
+    filter.addEventListener('change', () => {
+      visibleScheduleTypes = new Set(
+        Array.from(scheduleTypeFilters).filter(input => input.checked).map(input => input.value)
+      );
+      render();
+    });
+  });
+
   // Close modal when clicking outside the content
   window.addEventListener('click', (e) => {
     if (e.target === taskModal) {
       closeModal();
+    }
+    if (e.target === dayAgendaModal) {
+      closeDayAgendaModal();
     }
   });
 
@@ -437,15 +446,10 @@ function navigateCalendarWithAnim(direction) {
 // Get filtered tasks helper
 function getFilteredTodos() {
   return todos.filter(todo => {
-    // 1. Category Filter
-    if (selectedCategory !== 'all' && todo.category !== selectedCategory) {
-      return false;
-    }
-    // 2. Priority Filter
-    if (selectedPriority !== 'all' && todo.priority !== selectedPriority) {
-      return false;
-    }
-    // 3. Search Filter
+    const scheduleType = todo.scheduleType === 'kidsnote' ? 'kidsnote' : 'general';
+    if (!visibleScheduleTypes.has(scheduleType)) return false;
+
+    // Search Filter
     if (searchQueryParams) {
       const matchTitle = todo.title.toLowerCase().includes(searchQueryParams);
       const matchContent = todo.content.toLowerCase().includes(searchQueryParams);
@@ -596,17 +600,21 @@ function createCalendarCell(date, isCurrentMonth, isToday = false) {
   });
 
   for (let i = 0; i < weekLanes.length; i++) {
-    // If we reach the 5th slot (index 4) and there are more than 4 events on this day:
-    if (i === 4 && dayTodosCount > 4) {
+    // Keep month cells clean: show at most three rows and expose the rest in the day agenda.
+    if (i === 3 && dayTodosCount > 3) {
       const moreEl = document.createElement('div');
       moreEl.classList.add('event-more-label');
-      moreEl.textContent = `+ ${dayTodosCount - 4}개`;
+      moreEl.textContent = `+ ${dayTodosCount - 3}개`;
+      moreEl.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openDayAgenda(dateStringStr);
+      });
       eventContainer.appendChild(moreEl);
       break;
     }
     
-    // Hard limit: never render more than 5 rows total inside the cell
-    if (i >= 5) {
+    // Hard limit: never render more than three schedule rows inside the cell.
+    if (i >= 3) {
       break;
     }
 
@@ -643,26 +651,95 @@ function createCalendarCell(date, isCurrentMonth, isToday = false) {
         ? `${todo.title}\n(종일)`
         : `${todo.title}\n(${formatTime(todo.startDate)} ~ ${formatTime(todo.endDate)})`;
       
-      // Stop event propagation to prevent triggering cell click
+      // A compact card opens the full agenda for this date.
       eventEl.addEventListener('click', (e) => {
         e.stopPropagation();
-        openModal(todo);
+        openDayAgenda(dateStringStr);
       });
       
       eventContainer.appendChild(eventEl);
     }
   }
   
-  // Click cell to add new event
+  // Click a date to see every schedule on that day.
   cell.addEventListener('click', () => {
-    const now = new Date();
-    // Default time is 09:00 today, 10:00 end
-    const startIso = `${dateStringStr}T09:00`;
-    const endIso = `${dateStringStr}T10:00`;
-    openModal(null, startIso, endIso);
+    openDayAgenda(dateStringStr);
   });
   
   calendarGrid.appendChild(cell);
+}
+
+function getTodosForDate(dateString) {
+  return todos
+    .filter(todo => {
+      const start = todo.startDate.substring(0, 10);
+      const end = todo.endDate.substring(0, 10);
+      return dateString >= start && dateString <= end;
+    })
+    .sort((a, b) => {
+      const aAllDay = a.allDay || a.startDate.substring(0, 10) < a.endDate.substring(0, 10);
+      const bAllDay = b.allDay || b.startDate.substring(0, 10) < b.endDate.substring(0, 10);
+      if (aAllDay !== bAllDay) return aAllDay ? -1 : 1;
+      return a.startDate.localeCompare(b.startDate);
+    });
+}
+
+function openDayAgenda(dateString) {
+  dayAgendaDate = dateString;
+  const date = new Date(`${dateString}T00:00:00`);
+  const dayLabel = date.toLocaleDateString('ko-KR', {
+    year: 'numeric', month: 'long', day: 'numeric', weekday: 'short'
+  });
+  const dayTodos = getTodosForDate(dateString);
+
+  dayAgendaTitle.textContent = dayLabel;
+  dayAgendaCount.textContent = `${dayTodos.length}개`;
+  dayAgendaList.innerHTML = '';
+
+  if (dayTodos.length === 0) {
+    const empty = document.createElement('p');
+    empty.classList.add('day-agenda-empty');
+    empty.textContent = '등록된 일정이 없습니다.';
+    dayAgendaList.appendChild(empty);
+  } else {
+    dayTodos.forEach(todo => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.classList.add('day-agenda-item');
+      if (todo.completed) item.classList.add('completed');
+      item.style.setProperty('--agenda-color', todo.color || '#6366f1');
+
+      const isAllDay = todo.allDay || todo.startDate.substring(0, 10) < todo.endDate.substring(0, 10);
+      const time = document.createElement('span');
+      time.classList.add('day-agenda-time');
+      time.textContent = isAllDay ? '종일' : `${formatTime(todo.startDate)} ~ ${formatTime(todo.endDate)}`;
+
+      const details = document.createElement('span');
+      details.classList.add('day-agenda-details');
+      const title = document.createElement('strong');
+      title.textContent = todo.title;
+      details.appendChild(title);
+      if (todo.content) {
+        const content = document.createElement('small');
+        content.textContent = todo.content;
+        details.appendChild(content);
+      }
+
+      item.append(time, details);
+      item.addEventListener('click', () => {
+        closeDayAgendaModal();
+        openModal(todo);
+      });
+      dayAgendaList.appendChild(item);
+    });
+  }
+
+  dayAgendaModal.classList.add('open');
+  lucide.createIcons();
+}
+
+function closeDayAgendaModal() {
+  dayAgendaModal.classList.remove('open');
 }
 
 function getCalendarWeekLanes(date) {
@@ -815,26 +892,6 @@ function createTodoListItem(todo) {
     details.appendChild(content);
   }
   
-  // Metadata tags
-  const meta = document.createElement('div');
-  meta.classList.add('todo-meta');
-  
-  const categoryMap = { general: '기타', work: '업무', personal: '개인', study: '학습' };
-  const catBadge = document.createElement('span');
-  catBadge.classList.add('badge', 'badge-category');
-  catBadge.textContent = categoryMap[todo.category] || todo.category;
-  meta.appendChild(catBadge);
-  
-  const priorityMap = { high: '높음', medium: '보통', low: '낮음' };
-  const priBadge = document.createElement('span');
-  priBadge.classList.add('badge', 'badge-priority', todo.priority);
-  let iconName = 'help-circle';
-  if (todo.priority === 'high') iconName = 'alert-triangle';
-  if (todo.priority === 'medium') iconName = 'alert-circle';
-  priBadge.innerHTML = `<i data-lucide="${iconName}" style="width:10px;height:10px;"></i> <span>${priorityMap[todo.priority]}</span>`;
-  meta.appendChild(priBadge);
-  
-  details.appendChild(meta);
   item.appendChild(details);
   
   // Action buttons
@@ -923,8 +980,6 @@ function openModal(todo = null, customStart = null, customEnd = null) {
     document.getElementById('task-title').value = todo.title;
     document.getElementById('task-start-date').value = formatIsoForInput(todo.startDate);
     document.getElementById('task-end-date').value = formatIsoForInput(todo.endDate);
-    document.getElementById('task-category').value = todo.category;
-    document.getElementById('task-priority').value = todo.priority;
     document.getElementById('task-color').value = todo.color;
     document.getElementById('task-content').value = todo.content;
     
@@ -966,12 +1021,14 @@ async function handleFormSubmit(e) {
   e.preventDefault();
   
   const id = document.getElementById('task-id').value;
+  const existingTodo = todos.find(todo => todo.id === id);
   const taskData = {
     title: document.getElementById('task-title').value,
     startDate: document.getElementById('task-start-date').value,
     endDate: document.getElementById('task-end-date').value,
-    category: document.getElementById('task-category').value,
-    priority: document.getElementById('task-priority').value,
+    category: existingTodo?.category || 'general',
+    priority: existingTodo?.priority || 'medium',
+    scheduleType: existingTodo?.scheduleType === 'kidsnote' ? 'kidsnote' : 'general',
     color: document.getElementById('task-color').value,
     content: document.getElementById('task-content').value
   };
@@ -1267,7 +1324,12 @@ function showKidsNoteInput() {
 }
 
 async function analyzeKidsNote() {
-  const payload = { mode: 'saved_session', baseDate: formatLocalIsoWithOffset() };
+  const importStartDate = kidsNoteStartDate.value;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(importStartDate)) {
+    showToast('가져오기 시작일을 선택해 주세요.', 'danger');
+    return;
+  }
+  const payload = { mode: 'saved_session', baseDate: formatLocalIsoWithOffset(), importStartDate };
   if (!kidsNoteSessionConnected) {
     showToast('먼저 키즈노트 계정으로 로그인해 주세요.', 'danger');
     return;
@@ -1279,7 +1341,7 @@ async function analyzeKidsNote() {
   btnAnalyzeKidsNote.disabled = true;
   try {
     const result = await runKidsNoteBackgroundAnalysis(payload, partial => {
-        kidsNoteEventsState = Array.isArray(partial.events) ? partial.events : [];
+        kidsNoteEventsState = filterKidsNoteEventsByStartDate(partial.events, importStartDate);
         kidsNoteLoading.classList.add('hidden');
         kidsNotePreview.classList.remove('hidden');
         btnAnalyzeKidsNote.classList.add('hidden');
@@ -1289,11 +1351,11 @@ async function analyzeKidsNote() {
         kidsNoteSummary.textContent = `분석 중 ${completed}/${total} · 알림장 ${partial.analyzedCount || 0}건 확인 · 일정 후보 ${kidsNoteEventsState.length}건`;
         renderKidsNoteCandidates();
       });
-    kidsNoteEventsState = Array.isArray(result.events) ? result.events : [];
+    kidsNoteEventsState = filterKidsNoteEventsByStartDate(result.events, importStartDate);
     kidsNoteLoading.classList.add('hidden');
     kidsNotePreview.classList.remove('hidden');
     btnAnalyzeKidsNote.classList.add('hidden');
-    kidsNoteSummary.textContent = `알림장 ${result.reportCount || 0}건 중 본문 ${result.analyzedCount || 0}건을 분석했습니다.`;
+    kidsNoteSummary.textContent = `알림장 ${result.reportCount || 0}건 중 본문 ${result.analyzedCount || 0}건을 분석했습니다. ${importStartDate} 이후 일정만 표시합니다.`;
     renderKidsNoteCandidates();
     btnSaveKidsNote.classList.toggle('hidden', kidsNoteEventsState.length === 0);
   } catch (error) {
@@ -1319,7 +1381,7 @@ async function runKidsNoteBackgroundAnalysis(payload, onProgress) {
   const startResponse = await fetch('/api/kidsnote/import/start', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ baseDate: payload.baseDate })
+    body: JSON.stringify({ baseDate: payload.baseDate, importStartDate: payload.importStartDate })
   });
   const started = await startResponse.json().catch(() => ({}));
   if (!startResponse.ok || !started.jobId) {
@@ -1343,6 +1405,13 @@ async function runKidsNoteBackgroundAnalysis(payload, onProgress) {
     }
   }
   throw new Error('키즈노트 분석 시간이 초과되었습니다. 다시 시도해 주세요.');
+}
+
+function filterKidsNoteEventsByStartDate(events, importStartDate) {
+  return (Array.isArray(events) ? events : []).filter(event => {
+    const eventDate = String(event?.startDate || '').slice(0, 10);
+    return eventDate >= importStartDate;
+  });
 }
 
 function renderKidsNoteCandidates() {
@@ -1436,7 +1505,7 @@ async function saveSingleKidsNoteSchedule(index, button, card, checkbox) {
     const response = await fetch('/api/todos', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(task)
+      body: JSON.stringify({ ...task, scheduleType: 'kidsnote' })
     });
     if (!response.ok) throw new Error('일정을 등록하지 못했습니다.');
     kidsNoteSavedEventKeys.add(getKidsNoteEventKey(task));
@@ -1468,7 +1537,7 @@ async function saveKidsNoteSchedules() {
   btnSaveKidsNote.disabled = true;
   try {
     const responses = await Promise.all(selected.map(task => fetch('/api/todos', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(task)
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...task, scheduleType: 'kidsnote' })
     })));
     if (responses.some(response => !response.ok)) throw new Error('일부 일정을 등록하지 못했습니다.');
     closeKidsNote();
@@ -1482,18 +1551,18 @@ async function saveKidsNoteSchedules() {
 
 // AI natural-language schedule flow
 function setupAiScheduleEventListeners() {
-  btnAiSchedule.addEventListener('click', openAiScheduleModal);
-  closeAiScheduleModal.addEventListener('click', closeAiSchedule);
-  btnCancelAiSchedule.addEventListener('click', () => {
+  btnAiSchedule?.addEventListener('click', openAiScheduleModal);
+  closeAiScheduleModal?.addEventListener('click', closeAiSchedule);
+  btnCancelAiSchedule?.addEventListener('click', () => {
     if (btnCancelAiSchedule.textContent === '다시 하기') {
       showAiScheduleInput();
     } else {
       closeAiSchedule();
     }
   });
-  btnAnalyzeAiSchedule.addEventListener('click', analyzeAiScheduleText);
-  btnSaveAiSchedules.addEventListener('click', saveAiSchedules);
-  btnAiScheduleBack.addEventListener('click', showAiScheduleInput);
+  btnAnalyzeAiSchedule?.addEventListener('click', analyzeAiScheduleText);
+  btnSaveAiSchedules?.addEventListener('click', saveAiSchedules);
+  btnAiScheduleBack?.addEventListener('click', showAiScheduleInput);
 
   document.querySelectorAll('.ai-example-chip').forEach(chip => {
     chip.addEventListener('click', () => {
@@ -1522,8 +1591,8 @@ function resetAiScheduleModal() {
   aiScheduleEventsState = [];
   aiScheduleText.value = '';
   aiScheduleList.innerHTML = '';
-  aiScheduleCount.textContent = '0';
-  aiSelectedCount.textContent = '0';
+  if (aiScheduleCount) aiScheduleCount.textContent = '0';
+  if (aiSelectedCount) aiSelectedCount.textContent = '0';
   
   const aiScheduleDisplayTitle = document.getElementById('ai-schedule-display-title');
   const aiMicBtn = document.querySelector('.ai-mic-btn');
@@ -1634,7 +1703,7 @@ async function analyzeAiScheduleText() {
 
 function renderAiScheduleCandidates() {
   aiScheduleList.innerHTML = '';
-  aiScheduleCount.textContent = aiScheduleEventsState.length;
+  if (aiScheduleCount) aiScheduleCount.textContent = aiScheduleEventsState.length;
 
   if (aiScheduleEventsState.length === 0) {
     aiScheduleList.innerHTML = '<div class="todo-empty-state">등록 가능한 일정이 없습니다.</div>';
@@ -1647,9 +1716,6 @@ function renderAiScheduleCandidates() {
     const btnCancelAiSchedule = document.getElementById('btn-cancel-ai-schedule');
     if (btnCancelAiSchedule) btnCancelAiSchedule.textContent = '다시 하기';
   }
-
-  const categoryMap = { general: '기타', work: '업무', personal: '개인', study: '학습' };
-  const priorityMap = { high: '높음', medium: '보통', low: '낮음' };
 
   aiScheduleEventsState.forEach((event, index) => {
     const card = document.createElement('div');
@@ -1820,22 +1886,12 @@ function renderAiScheduleCandidates() {
       const meta = document.createElement('div');
       meta.classList.add('extracted-card-meta');
 
-      const categoryBadge = document.createElement('span');
-      categoryBadge.classList.add('badge', 'badge-category');
-      categoryBadge.textContent = categoryMap[event.category] || event.category;
-      meta.appendChild(categoryBadge);
-
       if (event.allDay) {
         const allDayBadge = document.createElement('span');
         allDayBadge.classList.add('badge', 'badge-all-day');
         allDayBadge.textContent = '종일';
         meta.appendChild(allDayBadge);
       }
-
-      const priorityBadge = document.createElement('span');
-      priorityBadge.classList.add('badge', 'badge-priority', event.priority);
-      priorityBadge.textContent = priorityMap[event.priority] || event.priority;
-      meta.appendChild(priorityBadge);
 
       if (Number.isFinite(event.confidence)) {
         const confidenceBadge = document.createElement('span');
@@ -1914,7 +1970,7 @@ function createAiDateField(labelText, value, onChange, allDay = false, isEnd = f
 
 function updateAiSelectedCount() {
   const selected = aiScheduleList.querySelectorAll('.ai-schedule-checkbox:checked').length;
-  aiSelectedCount.textContent = selected;
+  if (aiSelectedCount) aiSelectedCount.textContent = selected;
 }
 
 async function saveAiSchedules() {
@@ -2117,8 +2173,6 @@ function renderWeek() {
       document.getElementById('task-content').value = '';
       document.getElementById('task-start').value = startIso;
       document.getElementById('task-end').value = endIso;
-      document.getElementById('task-category').value = 'general';
-      document.getElementById('task-priority').value = 'medium';
       document.getElementById('task-allday').checked = false;
       
       btnDeleteTask.classList.add('hidden');
@@ -2197,18 +2251,14 @@ function renderDay() {
 
   // Group into all-day and hourly slots
   const allDayTodos = [];
-  const hourlySlots = Array.from({ length: 24 }, () => []);
+  const timedTodos = [];
   
   dayTodos.forEach(todo => {
     const isAllDay = todo.allDay || (todo.startDate.substring(0, 10) < todo.endDate.substring(0, 10));
     if (isAllDay) {
       allDayTodos.push(todo);
     } else {
-      let startHour = 0;
-      if (todo.startDate.substring(0, 10) === dayStringStr) {
-        startHour = new Date(todo.startDate).getHours();
-      }
-      hourlySlots[startHour].push(todo);
+      timedTodos.push(todo);
     }
   });
 
@@ -2255,13 +2305,6 @@ function renderDay() {
     const slot = document.createElement('div');
     slot.classList.add('day-timeline-slot');
     
-    // Fill slot with events starting at this hour
-    const slotTodos = hourlySlots[hour];
-    slotTodos.forEach(todo => {
-      const card = createDayEventCard(todo);
-      slot.appendChild(card);
-    });
-    
     // Clicking slot opens modal pre-filled with this hour
     slot.addEventListener('click', (e) => {
       if (e.target === slot) {
@@ -2279,7 +2322,51 @@ function renderDay() {
     timelineGrid.appendChild(row);
   }
 
+  // Attach the grid before measuring rows; detached elements report zero size.
   dayGrid.appendChild(timelineGrid);
+
+  // Place timed events on an overlay so their height represents their duration.
+  if (timedTodos.length > 0) {
+    const overlay = document.createElement('div');
+    overlay.classList.add('day-timeline-events-overlay');
+    const firstRow = timelineGrid.querySelector('.day-timeline-row');
+    const rowHeight = firstRow ? firstRow.getBoundingClientRect().height : 76;
+    const labelWidth = firstRow?.querySelector('.day-timeline-time-label')?.getBoundingClientRect().width || 72;
+    const allDayOffset = allDayTodos.length > 0
+      ? timelineGrid.querySelector('.day-all-day-section').getBoundingClientRect().height
+      : 0;
+    overlay.style.top = `${allDayOffset}px`;
+    overlay.style.left = `${labelWidth + 12}px`;
+
+    const lanes = [];
+    timedTodos
+      .slice()
+      .sort((a, b) => new Date(a.startDate) - new Date(b.startDate))
+      .forEach(todo => {
+        const start = new Date(todo.startDate);
+        const end = new Date(todo.endDate);
+        const startMinutes = start.getHours() * 60 + start.getMinutes();
+        const endMinutes = Math.max(startMinutes + 15, end.getHours() * 60 + end.getMinutes());
+        let lane = lanes.findIndex(laneEnd => laneEnd <= startMinutes);
+        if (lane < 0) lane = lanes.length;
+        lanes[lane] = endMinutes;
+        todo.__dayTimeline = { startMinutes, endMinutes, lane };
+      });
+
+    const laneCount = Math.max(1, lanes.length);
+    timedTodos.forEach(todo => {
+      const position = todo.__dayTimeline;
+      const card = createDayEventCard(todo);
+      card.classList.add('day-timeline-event-card');
+      card.style.top = `${position.startMinutes / 60 * rowHeight + 8}px`;
+      card.style.height = `${Math.max(42, (position.endMinutes - position.startMinutes) / 60 * rowHeight - 16)}px`;
+      card.style.left = `calc(${position.lane * 100 / laneCount}% + 4px)`;
+      card.style.width = `calc(${100 / laneCount}% - 8px)`;
+      overlay.appendChild(card);
+      delete todo.__dayTimeline;
+    });
+    timelineGrid.appendChild(overlay);
+  }
 
   // Auto-scroll timeline to current hour or first event
   setTimeout(() => {
