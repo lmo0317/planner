@@ -6,7 +6,6 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const https = require('https');
-const http = require('http');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const db = require('./db');
@@ -14,7 +13,6 @@ const db = require('./db');
 const execFileAsync = promisify(execFile);
 const app = express();
 const PORT = process.env.PORT || 3000;
-const KIDSNOTE_PHOTO_SERVICE_URL = process.env.KIDSNOTE_PHOTO_SERVICE_URL || 'http://127.0.0.1:3100';
 const LLM_BASE_URL = (process.env.LLM_BASE_URL || 'http://localhost:8081').replace(/\/$/, '');
 const LLM_MODEL = process.env.LLM_MODEL || 'gemma-4-e4b-it-q4km';
 const LLM_TIMEOUT_MS = Math.max(5000, Number(process.env.LLM_TIMEOUT_MS) || 60000);
@@ -262,39 +260,6 @@ function getKoreanHolidayModule() {
 }
 
 // Middleware
-function proxyKidsNotePhotoRequest(req, res, next) {
-  const isPhotoRequest = req.path === '/photo' ||
-    req.path === '/photo.css' ||
-    req.path === '/photo.js' ||
-    req.path === '/api/photos' ||
-    req.path.startsWith('/api/photos/') ||
-    req.path === '/api/photo-kidsnote' ||
-    req.path.startsWith('/api/photo-kidsnote/');
-  if (!isPhotoRequest) return next();
-
-  const target = new URL(req.originalUrl, KIDSNOTE_PHOTO_SERVICE_URL);
-  const proxyRequest = http.request({
-    hostname: target.hostname,
-    port: target.port || 80,
-    path: `${target.pathname}${target.search}`,
-    method: req.method,
-    headers: { ...req.headers, host: target.host }
-  }, proxyResponse => {
-    res.status(proxyResponse.statusCode || 502);
-    for (const [name, value] of Object.entries(proxyResponse.headers)) {
-      if (value !== undefined) res.setHeader(name, value);
-    }
-    proxyResponse.pipe(res);
-  });
-  proxyRequest.on('error', error => {
-    console.error('KidsNote photo service proxy error:', error.message);
-    if (!res.headersSent) res.status(502).json({ error: '사진 백업 서비스에 연결할 수 없습니다.' });
-    else res.end();
-  });
-  req.pipe(proxyRequest);
-}
-
-app.use(proxyKidsNotePhotoRequest);
 app.use(cors());
 app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
