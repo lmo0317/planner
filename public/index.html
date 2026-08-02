@@ -11,9 +11,9 @@
   <!-- Lucide Icons CDN -->
   <script src="https://unpkg.com/lucide@latest"></script>
   <!-- Tailwind/Vanilla CSS (Vanilla CSS will be structured in style.css) -->
-  <link rel="stylesheet" href="style.css?v=20260727-6">
+    <link rel="stylesheet" href="style.css?v=20260802-1">
 </head>
-<body class="dark-theme">
+<body class="light-theme">
   <div class="glow-bg">
     <div class="ball ball1"></div>
     <div class="ball ball2"></div>
@@ -21,6 +21,7 @@
   </div>
 
   <div class="app-container">
+    <div id="mobile-menu-backdrop" class="mobile-menu-backdrop" aria-hidden="true"></div>
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-header">
@@ -78,6 +79,10 @@
             <i data-lucide="school"></i>
             <span>키즈노트 가져오기</span>
           </button>
+          <button id="btn-google-calendar" class="btn btn-secondary" style="width: 100%; margin-top: 14px;">
+            <i data-lucide="calendar-sync"></i>
+            <span>Google Calendar 공유</span>
+          </button>
         </div>
       </nav>
     </aside>
@@ -121,6 +126,22 @@
 
       <!-- Calendar View Wrapper -->
       <div id="calendar-view" class="view-panel active">
+        <section id="mobile-month-view" class="mobile-month-view" aria-label="모바일 월간 일정">
+          <div class="mobile-month-weekdays" aria-hidden="true">
+            <span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span>
+          </div>
+          <div id="mobile-month-grid" class="mobile-month-grid"></div>
+          <section class="mobile-day-agenda" aria-live="polite">
+            <header class="mobile-day-agenda-header">
+              <div>
+                <span id="mobile-selected-date-label" class="mobile-selected-date-label"></span>
+                <h3 id="mobile-selected-day-title">오늘 일정</h3>
+              </div>
+              <span id="mobile-selected-day-count" class="mobile-selected-day-count">0개</span>
+            </header>
+            <div id="mobile-day-agenda-list" class="mobile-day-agenda-list"></div>
+          </section>
+        </section>
         <!-- Calendar Header (Days of week) -->
         <div class="calendar-days">
           <div>일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div>토</div>
@@ -133,7 +154,7 @@
       <div id="week-view" class="view-panel">
         <!-- Week Header (Days of week) -->
         <div class="calendar-days">
-          <div>일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div>토</div>
+          <div class="week-time-axis-header">시간</div><div>일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div>토</div>
         </div>
         <!-- Week Grid -->
         <div id="week-grid" class="week-grid"></div>
@@ -406,6 +427,39 @@
     </div>
   </div>
 
+  <!-- Google Calendar Sync and Sharing Modal -->
+  <div id="google-calendar-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="google-calendar-title">
+    <div class="modal-content glass google-calendar-modal-content">
+      <button type="button" id="close-google-calendar-modal" class="close-modal" aria-label="닫기"><i data-lucide="x"></i></button>
+      <h2 id="google-calendar-title">Google Calendar 공유</h2>
+      <p id="google-calendar-status" class="google-calendar-status">연결 상태를 확인하고 있습니다...</p>
+      <div class="google-calendar-guide">
+        <p><strong>한 번만 연결하면 끝입니다.</strong> ‘가족 플래너’ 캘린더가 자동으로 만들어지고 일정 변경도 계속 반영됩니다.</p>
+        <p>기본 캘린더는 공개하지 않습니다. 가족은 아래에서 이메일로 초대하면 됩니다.</p>
+      </div>
+      <div id="google-calendar-sharing-panel" class="google-calendar-sharing-panel hidden">
+        <label for="google-calendar-share-email">공유할 Google 계정</label>
+        <div class="google-calendar-share-controls">
+          <input type="email" id="google-calendar-share-email" placeholder="example@gmail.com" autocomplete="email">
+          <select id="google-calendar-share-role" aria-label="공유 권한">
+            <option value="reader">보기만</option>
+            <option value="writer">일정 편집 가능</option>
+          </select>
+          <button type="button" id="btn-share-google-calendar" class="btn btn-primary">공유 초대</button>
+        </div>
+        <small>Google에서 상대방에게 캘린더 공유 알림 이메일을 보냅니다.</small>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="btn-close-google-calendar" class="btn btn-secondary">닫기</button>
+        <div class="footer-right">
+          <button type="button" id="btn-disconnect-google-calendar" class="btn btn-danger hidden">연결 해제</button>
+          <button type="button" id="btn-connect-google-calendar" class="btn btn-primary">Google로 시작하기</button>
+          <button type="button" id="btn-sync-google-calendar" class="btn btn-success hidden">지금 다시 맞추기</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Notification Toast -->
   <div id="toast" class="toast">
     <div class="toast-content">
@@ -414,6 +468,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20260727-5"></script>
+    <script src="app.js?v=20260802-1"></script>
 </body>
 </html>

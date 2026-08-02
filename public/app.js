@@ -8,6 +8,7 @@ let visibleScheduleTypes = new Set(['general', 'kidsnote']);
 const holidayCache = new Map();
 const holidayRequests = new Map();
 let calendarWeekLaneCache = new Map();
+let mobileSelectedDate = formatDateString(new Date());
 
 // DOM Elements
 const calendarGrid = document.getElementById('calendar-grid');
@@ -28,12 +29,18 @@ const scheduleTypeFilters = document.querySelectorAll('.schedule-type-filter inp
 const toastElement = document.getElementById('toast');
 const mobileFab = document.getElementById('mobile-fab');
 const mobileMenuButton = document.getElementById('mobile-menu-button');
+const mobileMenuBackdrop = document.getElementById('mobile-menu-backdrop');
 const mobileSearchButton = document.getElementById('mobile-search-button');
 const mobileMoreButton = document.getElementById('mobile-more-button');
 const mobileNavItems = document.querySelectorAll('[data-mobile-view]');
 const mobileCurrentViewTitle = document.getElementById('mobile-current-view-title');
 const mobilePrevBtn = document.getElementById('mobile-prev-btn');
 const mobileNextBtn = document.getElementById('mobile-next-btn');
+const mobileMonthGrid = document.getElementById('mobile-month-grid');
+const mobileSelectedDateLabel = document.getElementById('mobile-selected-date-label');
+const mobileSelectedDayTitle = document.getElementById('mobile-selected-day-title');
+const mobileSelectedDayCount = document.getElementById('mobile-selected-day-count');
+const mobileDayAgendaList = document.getElementById('mobile-day-agenda-list');
 const dayAgendaModal = document.getElementById('day-agenda-modal');
 const closeDayAgendaModalBtn = document.getElementById('close-day-agenda-modal');
 const btnDayAgendaClose = document.getElementById('btn-day-agenda-close');
@@ -52,6 +59,19 @@ const weekGrid = document.getElementById('week-grid');
 const dayGrid = document.getElementById('day-grid');
 const sidebarCloseBtn = document.getElementById('sidebar-close-btn');
 const sidebarSettingsBtn = document.getElementById('sidebar-settings-btn');
+const btnGoogleCalendar = document.getElementById('btn-google-calendar');
+const googleCalendarModal = document.getElementById('google-calendar-modal');
+const closeGoogleCalendarModalBtn = document.getElementById('close-google-calendar-modal');
+const btnCloseGoogleCalendar = document.getElementById('btn-close-google-calendar');
+const googleCalendarStatus = document.getElementById('google-calendar-status');
+const btnConnectGoogleCalendar = document.getElementById('btn-connect-google-calendar');
+const btnSyncGoogleCalendar = document.getElementById('btn-sync-google-calendar');
+const btnDisconnectGoogleCalendar = document.getElementById('btn-disconnect-google-calendar');
+const googleCalendarSharingPanel = document.getElementById('google-calendar-sharing-panel');
+const googleCalendarShareEmail = document.getElementById('google-calendar-share-email');
+const googleCalendarShareRole = document.getElementById('google-calendar-share-role');
+const btnShareGoogleCalendar = document.getElementById('btn-share-google-calendar');
+let googleCalendarConfigured = false;
 
 // List view containers
 const pendingList = document.getElementById('pending-list');
@@ -118,12 +138,144 @@ document.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
   setupAiScheduleEventListeners();
   setupKidsNoteEventListeners();
+  setupGoogleCalendarEventListeners();
   fetchTodos();
+  showGoogleCalendarCallbackResult();
 });
+
+function showGoogleCalendarCallbackResult() {
+  const params = new URLSearchParams(window.location.search);
+  const result = params.get('googleCalendar');
+  if (!result) return;
+  showToast(result === 'connected' ? 'Google Calendar 연결과 첫 동기화가 완료되었습니다.' : 'Google Calendar 연결에 실패했습니다.', result === 'connected' ? 'success' : 'danger');
+  params.delete('googleCalendar');
+  const search = params.toString();
+  history.replaceState({}, '', `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`);
+}
+
+function setupGoogleCalendarEventListeners() {
+  btnGoogleCalendar?.addEventListener('click', async () => {
+    document.querySelector('.app-container')?.classList.remove('mobile-menu-open');
+    googleCalendarModal?.classList.add('open');
+    await refreshGoogleCalendarStatus();
+  });
+  [closeGoogleCalendarModalBtn, btnCloseGoogleCalendar].forEach(button => {
+    button?.addEventListener('click', () => googleCalendarModal?.classList.remove('open'));
+  });
+  googleCalendarModal?.addEventListener('click', event => {
+    if (event.target === googleCalendarModal) googleCalendarModal.classList.remove('open');
+  });
+  btnConnectGoogleCalendar?.addEventListener('click', () => {
+    if (!googleCalendarConfigured) {
+      window.open('https://console.cloud.google.com/apis/credentials', '_blank', 'noopener,noreferrer');
+      showToast('최초 1회 운영자 설정 후 일반 사용자는 Google 로그인만 하면 됩니다.', 'info');
+      return;
+    }
+    window.location.assign('/api/google-calendar/connect');
+  });
+  btnSyncGoogleCalendar?.addEventListener('click', async () => {
+    btnSyncGoogleCalendar.disabled = true;
+    const originalText = btnSyncGoogleCalendar.textContent;
+    btnSyncGoogleCalendar.textContent = '동기화 중...';
+    try {
+      const response = await fetch('/api/google-calendar/sync', { method: 'POST' });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Google Calendar 동기화에 실패했습니다.');
+      showToast(`Google Calendar를 맞췄습니다. 추가 ${result.created}개, 업데이트 ${result.updated}개, 삭제 ${result.deleted || 0}개`, 'success');
+    } catch (error) {
+      showToast(error.message, 'danger');
+    } finally {
+      btnSyncGoogleCalendar.disabled = false;
+      btnSyncGoogleCalendar.textContent = originalText;
+    }
+  });
+  btnShareGoogleCalendar?.addEventListener('click', async () => {
+    const email = googleCalendarShareEmail?.value.trim();
+    if (!email) {
+      showToast('공유할 Google 계정 이메일을 입력해 주세요.', 'danger');
+      googleCalendarShareEmail?.focus();
+      return;
+    }
+    btnShareGoogleCalendar.disabled = true;
+    const originalText = btnShareGoogleCalendar.textContent;
+    btnShareGoogleCalendar.textContent = '초대 중...';
+    try {
+      const response = await fetch('/api/google-calendar/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, role: googleCalendarShareRole?.value || 'reader' })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Google Calendar 공유에 실패했습니다.');
+      googleCalendarShareEmail.value = '';
+      showToast(`${result.email} 계정에 ‘${result.calendarName}’ 캘린더를 공유했습니다.`, 'success');
+      await refreshGoogleCalendarStatus();
+    } catch (error) {
+      showToast(error.message, 'danger');
+    } finally {
+      btnShareGoogleCalendar.disabled = false;
+      btnShareGoogleCalendar.textContent = originalText;
+    }
+  });
+  btnDisconnectGoogleCalendar?.addEventListener('click', async () => {
+    try {
+      const response = await fetch('/api/google-calendar/disconnect', { method: 'POST' });
+      if (!response.ok) throw new Error('Google Calendar 연결 해제에 실패했습니다.');
+      showToast('Google Calendar 연결을 해제했습니다.', 'success');
+      await refreshGoogleCalendarStatus();
+    } catch (error) {
+      showToast(error.message, 'danger');
+    }
+  });
+}
+
+async function refreshGoogleCalendarStatus() {
+  if (!googleCalendarStatus) return;
+  googleCalendarStatus.textContent = '연결 상태를 확인하고 있습니다...';
+  try {
+    const response = await fetch('/api/google-calendar/status');
+    const status = await response.json();
+    googleCalendarConfigured = Boolean(status.configured);
+    if (!status.configured) {
+      googleCalendarStatus.textContent = 'Google 로그인 기능을 켜려면 운영자가 최초 1회 Google Cloud 연결 정보를 등록해야 합니다.';
+      btnConnectGoogleCalendar.textContent = '운영자 설정 시작';
+      btnConnectGoogleCalendar?.classList.remove('hidden');
+      btnSyncGoogleCalendar?.classList.add('hidden');
+      btnDisconnectGoogleCalendar?.classList.add('hidden');
+      googleCalendarSharingPanel?.classList.add('hidden');
+      return;
+    }
+    if (status.connected) {
+      if (status.sharingReady) {
+        googleCalendarStatus.textContent = `연결 완료. ‘${status.calendarName}’ 캘린더에 일정 변경이 자동으로 반영됩니다.`;
+        btnConnectGoogleCalendar?.classList.add('hidden');
+        btnSyncGoogleCalendar?.classList.remove('hidden');
+        googleCalendarSharingPanel?.classList.remove('hidden');
+      } else {
+        googleCalendarStatus.textContent = '새로운 자동 연동을 사용하려면 Google 계정을 한 번만 다시 연결해 주세요.';
+        btnConnectGoogleCalendar.textContent = 'Google로 다시 연결';
+        btnConnectGoogleCalendar?.classList.remove('hidden');
+        btnSyncGoogleCalendar?.classList.add('hidden');
+        googleCalendarSharingPanel?.classList.add('hidden');
+      }
+      btnDisconnectGoogleCalendar?.classList.remove('hidden');
+    } else {
+      googleCalendarStatus.textContent = '아직 연결된 Google 계정이 없습니다.';
+      btnConnectGoogleCalendar.textContent = 'Google로 시작하기';
+      btnConnectGoogleCalendar?.classList.remove('hidden');
+      btnSyncGoogleCalendar?.classList.add('hidden');
+      btnDisconnectGoogleCalendar?.classList.add('hidden');
+      googleCalendarSharingPanel?.classList.add('hidden');
+    }
+  } catch (error) {
+    googleCalendarStatus.textContent = '연결 상태를 확인할 수 없습니다.';
+    showToast(error.message, 'danger');
+  }
+}
 
 // Theme Setup
 function initTheme() {
-  const savedTheme = localStorage.getItem('theme') || 'dark';
+  const savedTheme = localStorage.getItem('theme') || 'light';
   if (savedTheme === 'light') {
     document.body.classList.remove('dark-theme');
     document.body.classList.add('light-theme');
@@ -159,6 +311,9 @@ function setupEventListeners() {
 
   // Sidebar Close and Theme/Settings listeners
   sidebarCloseBtn?.addEventListener('click', () => {
+    document.querySelector('.app-container')?.classList.remove('mobile-menu-open');
+  });
+  mobileMenuBackdrop?.addEventListener('click', () => {
     document.querySelector('.app-container')?.classList.remove('mobile-menu-open');
   });
 
@@ -230,6 +385,9 @@ function setupEventListeners() {
   });
   mobileSearchButton?.addEventListener('click', () => {
     searchInput?.focus();
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') document.querySelector('.app-container')?.classList.remove('mobile-menu-open');
   });
   mobileNavItems.forEach(item => {
     item.addEventListener('click', () => {
@@ -516,7 +674,11 @@ function renderCalendar() {
   const totalDays = lastDay.getDate();
   const prevTotalDays = prevLastDay.getDate();
   
-  // 42 cells grid (6 weeks)
+  // Render only the weeks this month needs.  Keeping a fixed 42-cell grid
+  // made short months show an unnecessary extra week of next-month dates.
+  const weekCount = Math.ceil((startDayOfWeek + totalDays) / 7);
+  const requiredCellCount = weekCount * 7;
+  calendarGrid.style.gridTemplateRows = `repeat(${weekCount}, minmax(0, 1fr))`;
   let cellCount = 0;
   
   // 1. Previous month trailing days
@@ -535,16 +697,137 @@ function renderCalendar() {
     cellCount++;
   }
   
-  // 3. Next month leading days
-  let nextMonthDay = 1;
-  while (cellCount < 42) {
-    const nextMonthDate = new Date(year, month + 1, nextMonthDay);
-    createCalendarCell(nextMonthDate, false);
-    nextMonthDay++;
+  // 3. Keep the final week aligned, but don't render next-month dates.
+  while (cellCount < requiredCellCount) {
+    createEmptyCalendarCell();
     cellCount++;
   }
+
+  renderMobileMonth(year, month, startDayOfWeek, totalDays, requiredCellCount);
   
   lucide.createIcons();
+}
+
+function renderMobileMonth(year, month, startDayOfWeek, totalDays, requiredCellCount) {
+  if (!mobileMonthGrid || !mobileDayAgendaList) return;
+
+  const selected = new Date(`${mobileSelectedDate}T00:00:00`);
+  if (selected.getFullYear() !== year || selected.getMonth() !== month) {
+    const today = new Date();
+    const defaultDay = today.getFullYear() === year && today.getMonth() === month ? today.getDate() : 1;
+    mobileSelectedDate = formatDateString(new Date(year, month, defaultDay));
+  }
+
+  mobileMonthGrid.innerHTML = '';
+  for (let index = 0; index < requiredCellCount; index++) {
+    const day = index - startDayOfWeek + 1;
+    if (day < 1 || day > totalDays) {
+      const spacer = document.createElement('span');
+      spacer.classList.add('mobile-month-spacer');
+      spacer.setAttribute('aria-hidden', 'true');
+      mobileMonthGrid.appendChild(spacer);
+      continue;
+    }
+
+    const date = new Date(year, month, day);
+    const dateString = formatDateString(date);
+    const dayTodos = getFilteredTodos().filter(todo => {
+      const start = todo.startDate.substring(0, 10);
+      const end = todo.endDate.substring(0, 10);
+      return dateString >= start && dateString <= end;
+    });
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.classList.add('mobile-month-day');
+    button.dataset.date = dateString;
+    button.setAttribute('aria-label', `${month + 1}월 ${day}일, 일정 ${dayTodos.length}개`);
+    if (dateString === mobileSelectedDate) button.classList.add('selected');
+    if (dateString === formatDateString(new Date())) button.classList.add('today');
+    if (date.getDay() === 0 || getHoliday(dateString)) button.classList.add('holiday');
+    if (date.getDay() === 6) button.classList.add('saturday');
+
+    const number = document.createElement('span');
+    number.classList.add('mobile-month-day-number');
+    number.textContent = day;
+    button.appendChild(number);
+
+    if (dayTodos.length) {
+      const dots = document.createElement('span');
+      dots.classList.add('mobile-month-dots');
+      [...new Set(dayTodos.slice(0, 3).map(todo => todo.color || '#2cc985'))].forEach(color => {
+        const dot = document.createElement('i');
+        dot.style.backgroundColor = color;
+        dots.appendChild(dot);
+      });
+      button.appendChild(dots);
+    }
+
+    button.addEventListener('click', () => {
+      mobileSelectedDate = dateString;
+      renderMobileMonth(year, month, startDayOfWeek, totalDays, requiredCellCount);
+    });
+    mobileMonthGrid.appendChild(button);
+  }
+
+  renderMobileDayAgenda();
+}
+
+function renderMobileDayAgenda() {
+  if (!mobileDayAgendaList) return;
+  const date = new Date(`${mobileSelectedDate}T00:00:00`);
+  const dayTodos = getFilteredTodos().filter(todo => {
+    const start = todo.startDate.substring(0, 10);
+    const end = todo.endDate.substring(0, 10);
+    return mobileSelectedDate >= start && mobileSelectedDate <= end;
+  }).sort((a, b) => a.startDate.localeCompare(b.startDate));
+
+  mobileSelectedDateLabel.textContent = date.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' });
+  mobileSelectedDayTitle.textContent = date.toDateString() === new Date().toDateString() ? '오늘 일정' : '선택한 날의 일정';
+  mobileSelectedDayCount.textContent = `${dayTodos.length}개`;
+  mobileDayAgendaList.innerHTML = '';
+
+  if (!dayTodos.length) {
+    const empty = document.createElement('button');
+    empty.type = 'button';
+    empty.classList.add('mobile-day-agenda-empty');
+    empty.innerHTML = '<i data-lucide="calendar-plus"></i><span>등록된 일정이 없습니다.</span><strong>이 날짜에 일정 추가</strong>';
+    empty.addEventListener('click', () => openModal(null, `${mobileSelectedDate}T09:00`, `${mobileSelectedDate}T10:00`));
+    mobileDayAgendaList.appendChild(empty);
+    return;
+  }
+
+  dayTodos.forEach(todo => {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.classList.add('mobile-agenda-card');
+    if (todo.completed) item.classList.add('completed');
+    item.style.setProperty('--mobile-agenda-color', todo.color || '#2cc985');
+    const isAllDay = todo.allDay || todo.startDate.substring(0, 10) < todo.endDate.substring(0, 10);
+
+    const time = document.createElement('span');
+    time.classList.add('mobile-agenda-time');
+    time.textContent = isAllDay ? '종일' : formatTime(todo.startDate);
+    const content = document.createElement('span');
+    content.classList.add('mobile-agenda-content');
+    const title = document.createElement('strong');
+    title.textContent = todo.title;
+    content.appendChild(title);
+    if (todo.content) {
+      const detail = document.createElement('small');
+      detail.textContent = todo.content;
+      content.appendChild(detail);
+    }
+    item.append(time, content);
+    item.addEventListener('click', () => openModal(todo));
+    mobileDayAgendaList.appendChild(item);
+  });
+}
+
+function createEmptyCalendarCell() {
+  const cell = document.createElement('div');
+  cell.classList.add('calendar-day', 'calendar-day-empty');
+  cell.setAttribute('aria-hidden', 'true');
+  calendarGrid.appendChild(cell);
 }
 
 function createCalendarCell(date, isCurrentMonth, isToday = false) {
@@ -646,7 +929,21 @@ function createCalendarCell(date, isCurrentMonth, isToday = false) {
       eventEl.style.backgroundColor = todo.color;
       eventEl.style.borderLeftColor = darkenColor(todo.color, -30);
       
-      eventEl.textContent = continuesBefore ? '\u00a0' : todo.title;
+      const isTimedEvent = false;
+      if (continuesBefore) {
+        eventEl.textContent = '\u00a0';
+      } else if (isTimedEvent) {
+        const timeLabel = document.createElement('span');
+        timeLabel.classList.add('event-time-label');
+        timeLabel.textContent = formatTime(todo.startDate);
+
+        const titleLabel = document.createElement('span');
+        titleLabel.classList.add('event-title-label');
+        titleLabel.textContent = todo.title;
+        eventEl.append(timeLabel, titleLabel);
+      } else {
+        eventEl.textContent = todo.title;
+      }
       eventEl.title = todo.allDay
         ? `${todo.title}\n(종일)`
         : `${todo.title}\n(${formatTime(todo.startDate)} ~ ${formatTime(todo.endDate)})`;
@@ -2073,13 +2370,41 @@ function renderWeek() {
     }
   }
 
-  // Generate 7 days
   const filteredTodos = getFilteredTodos();
+  const dayEntries = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(startOfWeek);
+    date.setDate(startOfWeek.getDate() + index);
+    const dateString = formatDateString(date);
+    const todos = filteredTodos.filter(todo => {
+      const start = todo.startDate.substring(0, 10);
+      const end = todo.endDate.substring(0, 10);
+      return dateString >= start && dateString <= end;
+    });
+    return { date, dateString, todos };
+  });
+  const isAllDayTodo = todo => todo.allDay || todo.startDate.substring(0, 10) < todo.endDate.substring(0, 10);
+  const maxAllDayRows = Math.max(0, ...dayEntries.map(({ todos }) => todos.filter(isAllDayTodo).length));
+  weekGrid.style.setProperty('--week-all-day-rows', maxAllDayRows);
+
+  const timeAxis = document.createElement('aside');
+  timeAxis.classList.add('week-time-axis');
+  const headerSpacer = document.createElement('div');
+  headerSpacer.classList.add('week-time-axis-day-header');
+  timeAxis.appendChild(headerSpacer);
+  const allDaySpacer = document.createElement('div');
+  allDaySpacer.classList.add('week-time-axis-all-day');
+  timeAxis.appendChild(allDaySpacer);
+  for (let hour = 0; hour < 24; hour++) {
+    const slot = document.createElement('div');
+    slot.classList.add('week-time-axis-slot');
+    slot.textContent = `${String(hour).padStart(2, '0')}:00`;
+    timeAxis.appendChild(slot);
+  }
+  weekGrid.appendChild(timeAxis);
+
+  // Generate 7 days
   
-  for (let i = 0; i < 7; i++) {
-    const dayDate = new Date(startOfWeek);
-    dayDate.setDate(startOfWeek.getDate() + i);
-    const dayStringStr = formatDateString(dayDate);
+  dayEntries.forEach(({ date: dayDate, dateString: dayStringStr, todos: dayTodos }) => {
     
     const isToday = dayDate.toDateString() === today.toDateString();
     
@@ -2109,57 +2434,60 @@ function renderWeek() {
     headerContainer.appendChild(num);
     col.appendChild(headerContainer);
     
-    // Events container
-    const eventsContainer = document.createElement('div');
-    eventsContainer.classList.add('week-events-container');
-    
-    // Find todos scheduled on this day
-    const dayTodos = filteredTodos.filter(todo => {
-      const start = todo.startDate.substring(0, 10);
-      const end = todo.endDate.substring(0, 10);
-      return dayStringStr >= start && dayStringStr <= end;
-    });
-    
-    // Sort todos (all-day/period first, then by start time)
+    // Separate all-day items from time-based items.  Time-based cards are
+    // positioned in the hourly grid instead of being stacked at the top.
     dayTodos.sort((a, b) => {
-      const aAllDay = a.allDay || (a.startDate.substring(0, 10) < a.endDate.substring(0, 10));
-      const bAllDay = b.allDay || (b.startDate.substring(0, 10) < b.endDate.substring(0, 10));
+      const aAllDay = isAllDayTodo(a);
+      const bAllDay = isAllDayTodo(b);
       if (aAllDay && !bAllDay) return -1;
       if (!aAllDay && bAllDay) return 1;
       return a.startDate.localeCompare(b.startDate);
     });
-    
-    // Render event cards
-    dayTodos.forEach(todo => {
+
+    const allDayContainer = document.createElement('div');
+    allDayContainer.classList.add('week-all-day-container');
+    dayTodos.filter(isAllDayTodo).forEach(todo => {
       const card = document.createElement('div');
-      card.classList.add('week-event-card');
+      card.classList.add('week-event-card', 'week-all-day-card');
       if (todo.completed) card.classList.add('completed');
-      
       card.style.backgroundColor = todo.color;
       card.style.borderLeftColor = darkenColor(todo.color, -30);
-      
       const titleEl = document.createElement('div');
       titleEl.classList.add('week-event-title');
       titleEl.textContent = todo.title;
       card.appendChild(titleEl);
-      
-      // If timed event, show time duration
-      const isAllDay = todo.allDay || (todo.startDate.substring(0, 10) < todo.endDate.substring(0, 10));
-      if (!isAllDay) {
-        const timeEl = document.createElement('div');
-        timeEl.classList.add('week-event-time');
-        timeEl.textContent = `${formatTime(todo.startDate)} - ${formatTime(todo.endDate)}`;
-        card.appendChild(timeEl);
-      }
-      
       card.addEventListener('click', (e) => {
         e.stopPropagation();
         openModal(todo);
       });
-      
+      allDayContainer.appendChild(card);
+    });
+    col.appendChild(allDayContainer);
+
+    const eventsContainer = document.createElement('div');
+    eventsContainer.classList.add('week-events-container');
+    const timedEvents = dayTodos.filter(todo => !isAllDayTodo(todo)).map(todo => getWeekTimedEventLayout(todo, dayStringStr));
+    getWeekEventLanes(timedEvents).forEach(({ todo, start, end, lane, laneCount }) => {
+      const card = document.createElement('div');
+      card.classList.add('week-event-card', 'week-timed-card');
+      if (todo.completed) card.classList.add('completed');
+      card.style.backgroundColor = todo.color;
+      card.style.borderLeftColor = darkenColor(todo.color, -30);
+      card.style.top = `calc(${start} * var(--week-minute-height))`;
+      card.style.height = `max(28px, calc(${end - start} * var(--week-minute-height) - 3px))`;
+      card.style.left = `calc(${(lane / laneCount) * 100}% + 2px)`;
+      card.style.width = `calc(${100 / laneCount}% - 4px)`;
+      card.title = `${formatTime(todo.startDate)} ~ ${formatTime(todo.endDate)} · ${todo.title}`;
+      const titleEl = document.createElement('div');
+      titleEl.classList.add('week-event-title');
+      titleEl.textContent = todo.title;
+      card.appendChild(titleEl);
+      card.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openModal(todo);
+      });
       eventsContainer.appendChild(card);
     });
-    
     col.appendChild(eventsContainer);
     
     // Add click listener to day column to add a new event for this date
@@ -2180,9 +2508,49 @@ function renderWeek() {
     });
     
     weekGrid.appendChild(col);
-  }
+  });
   
   lucide.createIcons();
+}
+
+function getWeekTimedEventLayout(todo, dayString) {
+  const dayStart = new Date(`${dayString}T00:00:00`).getTime();
+  const dayEnd = dayStart + 24 * 60 * 60 * 1000;
+  const start = Math.max(dayStart, new Date(todo.startDate).getTime());
+  const end = Math.min(dayEnd, new Date(todo.endDate).getTime());
+  return {
+    todo,
+    start: Math.max(0, (start - dayStart) / 60000),
+    end: Math.min(24 * 60, Math.max(30, (end - dayStart) / 60000)),
+  };
+}
+
+function getWeekEventLanes(events) {
+  const sorted = [...events].sort((a, b) => a.start - b.start || a.end - b.end);
+  const groups = [];
+  let group = [];
+  let groupEnd = -Infinity;
+  sorted.forEach(event => {
+    if (group.length && event.start >= groupEnd) {
+      groups.push(group);
+      group = [];
+      groupEnd = -Infinity;
+    }
+    group.push(event);
+    groupEnd = Math.max(groupEnd, event.end);
+  });
+  if (group.length) groups.push(group);
+
+  return groups.flatMap(items => {
+    const laneEnds = [];
+    items.forEach(event => {
+      let lane = laneEnds.findIndex(end => end <= event.start);
+      if (lane === -1) lane = laneEnds.length;
+      laneEnds[lane] = event.end;
+      event.lane = lane;
+    });
+    return items.map(event => ({ ...event, laneCount: laneEnds.length }));
+  });
 }
 
 function getStartOfWeek(d) {

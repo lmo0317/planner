@@ -6,14 +6,15 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const https = require('https');
+const http = require('http');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
-const archiver = require('archiver');
 const db = require('./db');
 
 const execFileAsync = promisify(execFile);
 const app = express();
 const PORT = process.env.PORT || 3000;
+const KIDSNOTE_PHOTO_SERVICE_URL = process.env.KIDSNOTE_PHOTO_SERVICE_URL || 'http://127.0.0.1:3100';
 const LLM_BASE_URL = (process.env.LLM_BASE_URL || 'http://localhost:8081').replace(/\/$/, '');
 const LLM_MODEL = process.env.LLM_MODEL || 'gemma-4-e4b-it-q4km';
 const LLM_TIMEOUT_MS = Math.max(5000, Number(process.env.LLM_TIMEOUT_MS) || 60000);
@@ -22,17 +23,236 @@ const KIDSNOTE_SESSION_COOKIE = 'planner_kidsnote_session';
 const KIDSNOTE_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const KIDSNOTE_SESSION_FILE = path.join(__dirname, 'data', 'kidsnote-sessions.json');
 const CHROMIUM_EXECUTABLE = process.env.CHROMIUM_EXECUTABLE || '/snap/bin/chromium';
-const PHOTO_BACKUP_DIR = path.join(__dirname, 'data', 'photo-backups');
-const PHOTO_FILES_DIR = path.join(PHOTO_BACKUP_DIR, 'files');
-const PHOTO_THUMBS_DIR = path.join(PHOTO_BACKUP_DIR, 'thumbs');
-const PHOTO_INDEX_FILE = path.join(PHOTO_BACKUP_DIR, 'photos.json');
+const GOOGLE_CALENDAR_TOKEN_FILE = path.join(__dirname, 'data', 'google-calendar-token.json');
+const GOOGLE_CALENDAR_STATE_COOKIE = 'planner_google_calendar_state';
+const GOOGLE_CALENDAR_TIME_ZONE = 'Asia/Seoul';
+const GOOGLE_CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar';
+const GOOGLE_CALENDAR_NAME = '가족 플래너';
 const kidsNoteAnalysisJobs = new Map();
-const photoBackupJobs = new Map();
-const thumbnailQueue = [];
-let activeThumbnailJobs = 0;
-const MAX_THUMBNAIL_JOBS = 2;
+let googleCalendarSyncQueue = Promise.resolve();
 
 let koreanHolidayModulePromise;
+
+function getGoogleCalendarConfig() {
+  return {
+    clientId: process.env.GOOGLE_CLIENT_ID || '',
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+    redirectUri: process.env.GOOGLE_REDIRECT_URI || '',
+    encryptionKey: process.env.GOOGLE_TOKEN_ENCRYPTION_KEY || ''
+  };
+}
+
+function isGoogleCalendarConfigured() {
+  const config = getGoogleCalendarConfig();
+  return Boolean(config.clientId && config.clientSecret && config.redirectUri && config.encryptionKey);
+}
+
+function getGoogleCalendarCipherKey() {
+  return crypto.createHash('sha256').update(getGoogleCalendarConfig().encryptionKey).digest();
+}
+
+function encryptGoogleCalendarToken(token) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', getGoogleCalendarCipherKey(), iv);
+  const encrypted = Buffer.concat([cipher.update(JSON.stringify(token), 'utf8'), cipher.final()]);
+  return JSON.stringify({
+    version: 1,
+    iv: iv.toString('base64'),
+    tag: cipher.getAuthTag().toString('base64'),
+    data: encrypted.toString('base64')
+  }, null, 2);
+}
+
+function decryptGoogleCalendarToken(payload) {
+  const encrypted = JSON.parse(payload);
+  const decipher = crypto.createDecipheriv('aes-256-gcm', getGoogleCalendarCipherKey(), Buffer.from(encrypted.iv, 'base64'));
+  decipher.setAuthTag(Buffer.from(encrypted.tag, 'base64'));
+  const plain = Buffer.concat([decipher.update(Buffer.from(encrypted.data, 'base64')), decipher.final()]);
+  return JSON.parse(plain.toString('utf8'));
+}
+
+function readGoogleCalendarTokenStore() {
+  if (!isGoogleCalendarConfigured() || !fs.existsSync(GOOGLE_CALENDAR_TOKEN_FILE)) return null;
+  try {
+    return decryptGoogleCalendarToken(fs.readFileSync(GOOGLE_CALENDAR_TOKEN_FILE, 'utf8'));
+  } catch (error) {
+    console.error('Failed to read Google Calendar connection:', error.message);
+    return null;
+  }
+}
+
+function writeGoogleCalendarTokenStore(store) {
+  fs.mkdirSync(path.dirname(GOOGLE_CALENDAR_TOKEN_FILE), { recursive: true });
+  fs.writeFileSync(GOOGLE_CALENDAR_TOKEN_FILE, encryptGoogleCalendarToken(store), { mode: 0o600 });
+}
+
+function parseRequestCookies(req) {
+  return Object.fromEntries((req.headers.cookie || '').split(';').map(item => {
+    const index = item.indexOf('=');
+    return index === -1 ? [] : [item.slice(0, index).trim(), decodeURIComponent(item.slice(index + 1).trim())];
+  }).filter(item => item.length));
+}
+
+function clearGoogleCalendarStateCookie(res) {
+  res.setHeader('Set-Cookie', `${GOOGLE_CALENDAR_STATE_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
+}
+
+async function getGoogleCalendarAccessToken() {
+  const store = readGoogleCalendarTokenStore();
+  if (!store?.refreshToken) throw new Error('Google Calendar is not connected.');
+  if (store.accessToken && store.expiresAt > Date.now() + 60 * 1000) return { store, accessToken: store.accessToken };
+
+  const config = getGoogleCalendarConfig();
+  const response = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: config.clientId,
+      client_secret: config.clientSecret,
+      refresh_token: store.refreshToken,
+      grant_type: 'refresh_token'
+    })
+  });
+  const token = await response.json();
+  if (!response.ok) throw new Error(token.error_description || 'Google token refresh failed.');
+  store.accessToken = token.access_token;
+  store.expiresAt = Date.now() + Number(token.expires_in || 3600) * 1000;
+  writeGoogleCalendarTokenStore(store);
+  return { store, accessToken: store.accessToken };
+}
+
+async function googleCalendarRequest(url, options = {}) {
+  const { accessToken } = await getGoogleCalendarAccessToken();
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(options.headers || {})
+    }
+  });
+  if (response.status === 204) return null;
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(result?.error?.message || 'Google Calendar request failed.');
+    error.status = response.status;
+    throw error;
+  }
+  return result;
+}
+
+function hasGoogleCalendarSharingScope(store) {
+  return String(store?.scope || '').split(/\s+/).includes(GOOGLE_CALENDAR_SCOPE);
+}
+
+async function ensurePlannerGoogleCalendar(store) {
+  if (store.calendarId) return store.calendarId;
+  if (!hasGoogleCalendarSharingScope(store)) {
+    const error = new Error('캘린더 공유 권한이 필요합니다. Google 계정을 다시 연결해 주세요.');
+    error.status = 403;
+    throw error;
+  }
+  const calendar = await googleCalendarRequest('https://www.googleapis.com/calendar/v3/calendars', {
+    method: 'POST',
+    body: JSON.stringify({
+      summary: GOOGLE_CALENDAR_NAME,
+      description: '가족 플래너에서 동기화하고 공유하는 전용 캘린더입니다.',
+      timeZone: GOOGLE_CALENDAR_TIME_ZONE
+    })
+  });
+  store.calendarId = calendar.id;
+  store.calendarName = calendar.summary || GOOGLE_CALENDAR_NAME;
+  store.eventIds = {};
+  writeGoogleCalendarTokenStore(store);
+  return store.calendarId;
+}
+
+function toGoogleCalendarEvent(todo) {
+  const event = {
+    summary: todo.title,
+    description: todo.content || '',
+    extendedProperties: { private: { plannerTodoId: todo.id } }
+  };
+  if (todo.allDay || todo.startDate.slice(0, 10) !== todo.endDate.slice(0, 10)) {
+    const startDate = todo.startDate.slice(0, 10);
+    const end = new Date(`${todo.endDate.slice(0, 10)}T00:00:00`);
+    end.setDate(end.getDate() + 1);
+    event.start = { date: startDate };
+    event.end = { date: end.toISOString().slice(0, 10) };
+  } else {
+    event.start = { dateTime: normalizeGoogleCalendarDateTime(todo.startDate), timeZone: GOOGLE_CALENDAR_TIME_ZONE };
+    event.end = { dateTime: normalizeGoogleCalendarDateTime(todo.endDate), timeZone: GOOGLE_CALENDAR_TIME_ZONE };
+  }
+  return event;
+}
+
+function normalizeGoogleCalendarDateTime(value) {
+  let normalized = String(value || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(normalized)) normalized += ':00';
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(normalized)) normalized += '+09:00';
+  return normalized;
+}
+
+async function syncPlannerGoogleCalendar() {
+  const { store } = await getGoogleCalendarAccessToken();
+  const calendarId = await ensurePlannerGoogleCalendar(store);
+  const todos = await db.getAllTodos();
+  store.eventIds = store.eventIds || {};
+  const currentTodoIds = new Set(todos.map(todo => String(todo.id)));
+  let created = 0;
+  let updated = 0;
+  let deleted = 0;
+
+  for (const todo of todos) {
+    const todoId = String(todo.id);
+    const event = toGoogleCalendarEvent(todo);
+    const existingId = store.eventIds[todoId];
+    if (existingId) {
+      try {
+        await googleCalendarRequest(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(existingId)}`, {
+          method: 'PUT',
+          body: JSON.stringify(event)
+        });
+        updated++;
+        continue;
+      } catch (error) {
+        if (error.status !== 404) throw error;
+      }
+    }
+    const createdEvent = await googleCalendarRequest(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
+      { method: 'POST', body: JSON.stringify(event) }
+    );
+    store.eventIds[todoId] = createdEvent.id;
+    writeGoogleCalendarTokenStore(store);
+    created++;
+  }
+
+  for (const [todoId, eventId] of Object.entries(store.eventIds)) {
+    if (currentTodoIds.has(String(todoId))) continue;
+    try {
+      await googleCalendarRequest(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`, {
+        method: 'DELETE'
+      });
+    } catch (error) {
+      if (error.status !== 404) throw error;
+    }
+    delete store.eventIds[todoId];
+    deleted++;
+  }
+
+  writeGoogleCalendarTokenStore(store);
+  return { created, updated, deleted, total: todos.length };
+}
+
+function queueGoogleCalendarSync() {
+  const store = readGoogleCalendarTokenStore();
+  if (!store?.refreshToken || !hasGoogleCalendarSharingScope(store)) return;
+  googleCalendarSyncQueue = googleCalendarSyncQueue
+    .catch(() => undefined)
+    .then(() => syncPlannerGoogleCalendar())
+    .catch(error => console.error('Automatic Google Calendar sync failed:', error.message));
+}
 
 function getKoreanHolidayModule() {
   if (!koreanHolidayModulePromise) {
@@ -42,397 +262,53 @@ function getKoreanHolidayModule() {
 }
 
 // Middleware
+function proxyKidsNotePhotoRequest(req, res, next) {
+  const isPhotoRequest = req.path === '/photo' ||
+    req.path === '/photo.css' ||
+    req.path === '/photo.js' ||
+    req.path === '/api/photos' ||
+    req.path.startsWith('/api/photos/') ||
+    req.path === '/api/photo-kidsnote' ||
+    req.path.startsWith('/api/photo-kidsnote/');
+  if (!isPhotoRequest) return next();
+
+  const target = new URL(req.originalUrl, KIDSNOTE_PHOTO_SERVICE_URL);
+  const proxyRequest = http.request({
+    hostname: target.hostname,
+    port: target.port || 80,
+    path: `${target.pathname}${target.search}`,
+    method: req.method,
+    headers: { ...req.headers, host: target.host }
+  }, proxyResponse => {
+    res.status(proxyResponse.statusCode || 502);
+    for (const [name, value] of Object.entries(proxyResponse.headers)) {
+      if (value !== undefined) res.setHeader(name, value);
+    }
+    proxyResponse.pipe(res);
+  });
+  proxyRequest.on('error', error => {
+    console.error('KidsNote photo service proxy error:', error.message);
+    if (!res.headersSent) res.status(502).json({ error: '사진 백업 서비스에 연결할 수 없습니다.' });
+    else res.end();
+  });
+  req.pipe(proxyRequest);
+}
+
+app.use(proxyKidsNotePhotoRequest);
 app.use(cors());
 app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
-// Serve static files
-app.use(express.static(path.join(__dirname, 'public')));
-
-function ensurePhotoBackupStore() {
-  fs.mkdirSync(PHOTO_FILES_DIR, { recursive: true });
-  fs.mkdirSync(PHOTO_THUMBS_DIR, { recursive: true });
-  if (!fs.existsSync(PHOTO_INDEX_FILE)) {
-    fs.writeFileSync(PHOTO_INDEX_FILE, '[]\n', 'utf8');
-  }
-}
-
-function readPhotoIndex() {
-  try {
-    ensurePhotoBackupStore();
-    const photos = JSON.parse(fs.readFileSync(PHOTO_INDEX_FILE, 'utf8'));
-    return Array.isArray(photos) ? photos : [];
-  } catch (error) {
-    console.error('Failed to read photo backup index:', error.message);
-    return [];
-  }
-}
-
-function writePhotoIndex(photos) {
-  ensurePhotoBackupStore();
-  fs.writeFileSync(PHOTO_INDEX_FILE, `${JSON.stringify(photos, null, 2)}\n`, 'utf8');
-}
-
-function getPhotoById(id) {
-  const photos = readPhotoIndex();
-  return { photos, photo: photos.find(item => item.id === id) };
-}
-
-function getPhotoFilePath(photo) {
-  const filePath = path.resolve(PHOTO_FILES_DIR, photo?.filename || '');
-  const root = path.resolve(PHOTO_FILES_DIR) + path.sep;
-  return filePath.startsWith(root) ? filePath : '';
-}
-
-function getPhotoThumbPath(photo) {
-  const thumbPath = path.resolve(PHOTO_THUMBS_DIR, `${photo?.id || ''}.jpg`);
-  const root = path.resolve(PHOTO_THUMBS_DIR) + path.sep;
-  return thumbPath.startsWith(root) ? thumbPath : '';
-}
-
-function runThumbnailTask(task) {
-  return new Promise((resolve, reject) => {
-    thumbnailQueue.push({ task, resolve, reject });
-    drainThumbnailQueue();
-  });
-}
-
-function drainThumbnailQueue() {
-  while (activeThumbnailJobs < MAX_THUMBNAIL_JOBS && thumbnailQueue.length) {
-    const item = thumbnailQueue.shift();
-    activeThumbnailJobs++;
-    item.task()
-      .then(item.resolve, item.reject)
-      .finally(() => {
-        activeThumbnailJobs--;
-        drainThumbnailQueue();
-      });
-  }
-}
-
-async function ensurePhotoThumbnail(photo) {
-  ensurePhotoBackupStore();
-  const sourcePath = getPhotoFilePath(photo);
-  const thumbPath = getPhotoThumbPath(photo);
-  if (!sourcePath || !thumbPath || !fs.existsSync(sourcePath)) return '';
-  if (fs.existsSync(thumbPath)) return thumbPath;
-
-  const temporaryPath = `${thumbPath}.${process.pid}-${Date.now()}.tmp.jpg`;
-  try {
-    await runThumbnailTask(() => execFileAsync('ffmpeg', [
-      '-y',
-      '-hide_banner',
-      '-loglevel', 'error',
-      '-i', sourcePath,
-      '-vf', 'scale=360:360:force_original_aspect_ratio=increase,crop=360:360',
-      '-frames:v', '1',
-      '-q:v', '5',
-      temporaryPath
-    ], { timeout: 30000 }));
-    fs.renameSync(temporaryPath, thumbPath);
-    return thumbPath;
-  } catch (error) {
-    if (fs.existsSync(temporaryPath)) fs.rmSync(temporaryPath, { force: true });
-    console.warn('Photo thumbnail generation failed:', photo?.id, error.message);
-    return '';
-  }
-}
-
-function sanitizePhotoName(value) {
-  const base = path.basename(String(value || 'photo')).replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').trim();
-  return base || 'photo';
-}
-
-function getImageExtension(contentType, sourceUrl = '') {
-  const type = String(contentType || '').toLowerCase();
-  if (type.includes('jpeg') || type.includes('jpg')) return '.jpg';
-  if (type.includes('png')) return '.png';
-  if (type.includes('webp')) return '.webp';
-  if (type.includes('gif')) return '.gif';
-  if (type.includes('heic')) return '.heic';
-  const ext = path.extname(new URL(sourceUrl).pathname).toLowerCase();
-  return /^\.(jpe?g|png|webp|gif|heic)$/.test(ext) ? ext : '.jpg';
-}
-
-function getPhotoSourceId(sourceUrl) {
-  return crypto.createHash('sha256').update(String(sourceUrl)).digest('hex');
-}
-
-function getKidsNoteImageKey(sourceUrl) {
-  try {
-    const url = new URL(sourceUrl);
-    const host = url.hostname.toLowerCase();
-    const parts = url.pathname.split('/').filter(Boolean);
-    if (host === 'up-kids-kage.kakao.com' && parts[0] === 'dn' && parts.length >= 5) {
-      return `${host}/${parts.slice(0, -1).join('/')}`;
-    }
-  } catch {}
-  return '';
-}
-
-function getKidsNoteImageQuality(sourceUrl, size = 0) {
-  let filename = '';
-  try {
-    filename = path.basename(new URL(sourceUrl).pathname).toLowerCase();
-  } catch {}
-  let score = 50;
-  if (/^(img|image|photo)\.(jpe?g|png|webp|gif|heic)$/i.test(filename)) score = 100;
-  else if (/_l\.(jpe?g|png|webp|gif|heic)$/i.test(filename) || /large/i.test(filename)) score = 80;
-  else if (/(_240x240|small|thumb|thumbnail|pre\d*_small)/i.test(filename)) score = 10;
-  return score * 10000000000 + (Number(size) || 0);
-}
-
-function getExistingPhotoUrlSet(photos = readPhotoIndex()) {
-  return new Set(photos.map(photo => photo.sourceUrl).filter(Boolean));
-}
-
-function buildExistingPhotoUrlMap(photos = readPhotoIndex()) {
-  return new Map(photos.map(photo => [photo.sourceUrl, photo]).filter(([sourceUrl]) => Boolean(sourceUrl)));
-}
-
-function shouldUpdatePhotoMeta(photo, meta = {}) {
-  if (!photo) return false;
-  return (!photo.takenAt && Boolean(meta.sourceDate)) ||
-    (!photo.sourceTitle && Boolean(meta.sourceTitle)) ||
-    (!photo.sourceType && Boolean(meta.sourceType)) ||
-    (!photo.sourcePage && Boolean(meta.sourcePage));
-}
-
-function updateExistingPhotoMeta(sourceUrl, meta = {}) {
-  const photos = readPhotoIndex();
-  const index = photos.findIndex(photo => photo.sourceUrl === sourceUrl);
-  if (index === -1) return false;
-  const photo = photos[index];
-  const next = {
-    ...photo,
-    takenAt: photo.takenAt || meta.sourceDate || '',
-    sourceTitle: photo.sourceTitle || meta.sourceTitle || '',
-    sourceType: photo.sourceType || meta.sourceType || '',
-    sourcePage: photo.sourcePage || meta.sourcePage || ''
-  };
-  if (JSON.stringify(next) === JSON.stringify(photo)) return false;
-  photos[index] = next;
-  writePhotoIndex(photos);
-  return true;
-}
-
-function updateExistingPhotoMetaByImageKey(sourceUrl, meta = {}) {
-  const imageKey = getKidsNoteImageKey(sourceUrl);
-  if (!imageKey) return 0;
-  const photos = readPhotoIndex();
-  let changed = 0;
-  const updated = photos.map(photo => {
-    const currentKey = photo.imageKey || getKidsNoteImageKey(photo.sourceUrl);
-    if (currentKey !== imageKey) return photo;
-    const next = {
-      ...photo,
-      imageKey,
-      takenAt: photo.takenAt || meta.sourceDate || '',
-      sourceTitle: photo.sourceTitle || meta.sourceTitle || '',
-      sourceType: photo.sourceType || meta.sourceType || '',
-      sourcePage: photo.sourcePage || meta.sourcePage || ''
-    };
-    if (JSON.stringify(next) !== JSON.stringify(photo)) changed++;
-    return next;
-  });
-  if (changed) writePhotoIndex(updated);
-  return changed;
-}
-
-function updateExistingPhotoMetaBySourcePage(sourcePage, meta = {}) {
-  if (!sourcePage) return 0;
-  const photos = readPhotoIndex();
-  let changed = 0;
-  const updated = photos.map(photo => {
-    if (photo.sourcePage !== sourcePage) return photo;
-    const next = {
-      ...photo,
-      takenAt: photo.takenAt || meta.sourceDate || '',
-      sourceTitle: photo.sourceTitle || meta.sourceTitle || '',
-      sourceType: photo.sourceType || meta.sourceType || ''
-    };
-    if (JSON.stringify(next) !== JSON.stringify(photo)) changed++;
-    return next;
-  });
-  if (changed) writePhotoIndex(updated);
-  return changed;
-}
-
-function addBackedUpPhoto({ sourceUrl, buffer, mimeType, sourcePage, sourceType, sourceDate, sourceTitle }) {
-  if (!Buffer.isBuffer(buffer) || buffer.length < 8 * 1024) return null;
-  const photos = readPhotoIndex();
-  if (photos.some(photo => photo.sourceUrl === sourceUrl)) return null;
-  const imageKey = getKidsNoteImageKey(sourceUrl);
-  if (imageKey) {
-    const duplicates = photos
-      .map((photo, index) => ({ photo, index, imageKey: photo.imageKey || getKidsNoteImageKey(photo.sourceUrl) }))
-      .filter(item => item.imageKey === imageKey);
-    const bestExisting = duplicates
-      .map(item => ({ ...item, quality: getKidsNoteImageQuality(item.photo.sourceUrl, item.photo.size) }))
-      .sort((a, b) => b.quality - a.quality)[0];
-    if (bestExisting && bestExisting.quality >= getKidsNoteImageQuality(sourceUrl, buffer.length)) {
-      return null;
-    }
-    for (const duplicate of duplicates) {
-      const filePath = path.join(PHOTO_FILES_DIR, duplicate.photo.filename);
-      if (fs.existsSync(filePath)) fs.rmSync(filePath, { force: true });
-    }
-    const duplicateIndexes = new Set(duplicates.map(item => item.index));
-    for (let index = photos.length - 1; index >= 0; index--) {
-      if (duplicateIndexes.has(index)) photos.splice(index, 1);
+// Serve static files. Keep the entry HTML fresh so a normal reload always
+// picks up the latest cache-busted frontend assets after a deployment.
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders(res, filePath) {
+    if (path.extname(filePath) === '.html') {
+      res.setHeader('Cache-Control', 'no-store');
     }
   }
-
-  const id = getPhotoSourceId(sourceUrl);
-  const ext = getImageExtension(mimeType, sourceUrl);
-  const filename = `${id}${ext}`;
-  const filePath = path.join(PHOTO_FILES_DIR, filename);
-  if (!fs.existsSync(filePath)) fs.writeFileSync(filePath, buffer);
-
-  const urlPath = new URL(sourceUrl).pathname;
-  const originalName = sanitizePhotoName(path.basename(urlPath) || `${sourceType || 'kidsnote'}-${id.slice(0, 8)}${ext}`);
-  const photo = {
-    id,
-    originalName,
-    filename,
-    mimeType: mimeType || 'image/jpeg',
-    size: buffer.length,
-    uploadedAt: new Date().toISOString(),
-    takenAt: sourceDate || '',
-    sourceTitle: sourceTitle || '',
-    source: 'kidsnote',
-    sourceType,
-    sourcePage,
-    sourceUrl,
-    imageKey
-  };
-  writePhotoIndex([...photos, photo]);
-  return photo;
-}
-
-// API Routes
-app.get('/photo', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'photo.html'));
-});
-
-app.get('/api/photos', (req, res) => {
-  const sort = String(req.query.sort || 'sourceDateDesc');
-  const offset = Math.max(0, Number(req.query.offset) || 0);
-  const limit = Math.max(1, Math.min(200, Number(req.query.limit) || 80));
-  const query = String(req.query.q || '').trim().toLowerCase();
-  const year = String(req.query.year || '').trim();
-  const allPhotos = readPhotoIndex()
-    .filter(photo => fs.existsSync(path.join(PHOTO_FILES_DIR, photo.filename)))
-    .sort((a, b) => {
-      const aTaken = String(a.takenAt || '');
-      const bTaken = String(b.takenAt || '');
-      if (sort === 'sourceDateAsc') {
-        if (aTaken && !bTaken) return -1;
-        if (!aTaken && bTaken) return 1;
-        return aTaken.localeCompare(bTaken) || String(a.uploadedAt).localeCompare(String(b.uploadedAt));
-      }
-      if (sort === 'uploadedDesc') return String(b.uploadedAt).localeCompare(String(a.uploadedAt));
-      if (sort === 'uploadedAsc') return String(a.uploadedAt).localeCompare(String(b.uploadedAt));
-      if (aTaken && !bTaken) return -1;
-      if (!aTaken && bTaken) return 1;
-      return bTaken.localeCompare(aTaken) || String(b.uploadedAt).localeCompare(String(a.uploadedAt));
-    });
-  const yearCounts = allPhotos.reduce((counts, photo) => {
-    const photoYear = String(photo.takenAt || '').slice(0, 4);
-    if (/^\d{4}$/.test(photoYear)) counts[photoYear] = (counts[photoYear] || 0) + 1;
-    return counts;
-  }, {});
-  const filteredPhotos = allPhotos
-    .filter(photo => !/^\d{4}$/.test(year) || String(photo.takenAt || '').startsWith(year))
-    .filter(photo => {
-      if (!query) return true;
-      const haystack = `${photo.originalName || ''} ${photo.sourceType || ''} ${photo.sourceTitle || ''} ${photo.sourceUrl || ''}`.toLowerCase();
-      return haystack.includes(query);
-    });
-  const totalSize = allPhotos.reduce((sum, photo) => sum + (Number(photo.size) || 0), 0);
-  res.json({
-    photos: filteredPhotos.slice(offset, offset + limit),
-    totalCount: filteredPhotos.length,
-    allCount: allPhotos.length,
-    totalSize,
-    yearCounts,
-    selectedYear: /^\d{4}$/.test(year) ? year : '',
-    offset,
-    limit,
-    hasMore: offset + limit < filteredPhotos.length
-  });
-});
-
-app.get('/api/photos/:id/thumb', async (req, res) => {
-  const { photo } = getPhotoById(req.params.id);
-  if (!photo) return res.status(404).json({ error: '사진을 찾을 수 없습니다.' });
-  const thumbPath = await ensurePhotoThumbnail(photo);
-  if (thumbPath) {
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-    return res.type('jpg').sendFile(thumbPath);
-  }
-  const filePath = getPhotoFilePath(photo);
-  if (!filePath || !fs.existsSync(filePath)) return res.status(404).json({ error: '사진 파일을 찾을 수 없습니다.' });
-  res.setHeader('Cache-Control', 'public, max-age=86400');
-  return res.sendFile(filePath);
-});
-
-app.get('/api/photos/download-all', (req, res) => {
-  const photos = readPhotoIndex().filter(photo => fs.existsSync(path.join(PHOTO_FILES_DIR, photo.filename)));
-  if (!photos.length) return res.status(404).json({ error: '다운로드할 사진이 없습니다.' });
-
-  const date = new Date().toISOString().slice(0, 10);
-  const archive = archiver('zip', { zlib: { level: 9 } });
-  const usedNames = new Map();
-
-  res.statusCode = 200;
-  res.setHeader('Content-Type', 'application/zip');
-  res.setHeader('Content-Disposition', `attachment; filename="kidsnote-photos-${date}.zip"`);
-  archive.on('error', error => {
-    console.error('Failed to create photo archive:', error.message);
-    if (!res.headersSent) res.status(500).json({ error: '사진 압축 파일을 만들지 못했습니다.' });
-    else res.destroy(error);
-  });
-  archive.pipe(res);
-
-  for (const photo of photos) {
-    const filePath = path.join(PHOTO_FILES_DIR, photo.filename);
-    const baseName = sanitizePhotoName(photo.originalName || photo.filename);
-    const extension = path.extname(baseName);
-    const stem = extension ? baseName.slice(0, -extension.length) : baseName;
-    const count = usedNames.get(baseName) || 0;
-    const archiveName = count === 0 ? baseName : `${stem} (${count + 1})${extension}`;
-    usedNames.set(baseName, count + 1);
-    archive.file(filePath, { name: archiveName });
-  }
-
-  archive.finalize();
-});
-
-app.get('/api/photos/:id/file', (req, res) => {
-  const { photo } = getPhotoById(req.params.id);
-  if (!photo) return res.status(404).json({ error: '사진을 찾을 수 없습니다.' });
-  const filePath = getPhotoFilePath(photo);
-  if (!fs.existsSync(filePath)) return res.status(404).json({ error: '사진 파일을 찾을 수 없습니다.' });
-  res.type(photo.mimeType || 'application/octet-stream');
-  if (req.query.download === '1') {
-    res.download(filePath, photo.originalName || photo.filename);
-  } else {
-    res.sendFile(filePath);
-  }
-});
-
-app.delete('/api/photos/:id', (req, res) => {
-  const { photos, photo } = getPhotoById(req.params.id);
-  if (!photo) return res.status(404).json({ error: '사진을 찾을 수 없습니다.' });
-  const filePath = getPhotoFilePath(photo);
-  const thumbPath = getPhotoThumbPath(photo);
-  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-  if (thumbPath && fs.existsSync(thumbPath)) fs.unlinkSync(thumbPath);
-  writePhotoIndex(photos.filter(item => item.id !== req.params.id));
-  res.json({ deleted: true });
-});
+}));
 
 app.get('/api/holidays', async (req, res) => {
   const year = Number.parseInt(req.query.year, 10);
@@ -492,6 +368,7 @@ app.post('/api/todos', async (req, res) => {
     }
     const newTodo = await db.createTodo(req.body);
     res.status(201).json(newTodo);
+    queueGoogleCalendarSync();
   } catch (err) {
     res.status(500).json({ error: 'Failed to create task', details: err.message });
   }
@@ -504,6 +381,7 @@ app.put('/api/todos/:id', async (req, res) => {
       return res.status(404).json({ error: 'Task not found' });
     }
     res.json(updatedTodo);
+    queueGoogleCalendarSync();
   } catch (err) {
     res.status(500).json({ error: 'Failed to update task', details: err.message });
   }
@@ -516,8 +394,139 @@ app.delete('/api/todos/:id', async (req, res) => {
       return res.status(404).json({ error: 'Task not found' });
     }
     res.json({ message: 'Task deleted successfully' });
+    queueGoogleCalendarSync();
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete task', details: err.message });
+  }
+});
+
+app.get('/api/google-calendar/status', (req, res) => {
+  const store = readGoogleCalendarTokenStore();
+  res.json({
+    configured: isGoogleCalendarConfigured(),
+    connected: Boolean(store?.refreshToken),
+    sharingReady: Boolean(store?.refreshToken && hasGoogleCalendarSharingScope(store)),
+    calendarCreated: Boolean(store?.calendarId),
+    calendarName: store?.calendarName || GOOGLE_CALENDAR_NAME
+  });
+});
+
+app.get('/api/google-calendar/connect', (req, res) => {
+  if (!isGoogleCalendarConfigured()) {
+    return res.status(503).send('Google Calendar 설정이 아직 완료되지 않았습니다. 서버의 .env 파일을 확인하세요.');
+  }
+  const config = getGoogleCalendarConfig();
+  const state = crypto.randomBytes(32).toString('base64url');
+  res.setHeader('Set-Cookie', `${GOOGLE_CALENDAR_STATE_COOKIE}=${state}; HttpOnly; SameSite=Lax; Path=/; Max-Age=600`);
+  const authorizeUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  authorizeUrl.search = new URLSearchParams({
+    client_id: config.clientId,
+    redirect_uri: config.redirectUri,
+    response_type: 'code',
+    scope: GOOGLE_CALENDAR_SCOPE,
+    access_type: 'offline',
+    prompt: 'consent',
+    state
+  }).toString();
+  res.redirect(authorizeUrl.toString());
+});
+
+app.get('/api/google-calendar/callback', async (req, res) => {
+  const returnUrl = '/?googleCalendar=error';
+  try {
+    const state = parseRequestCookies(req)[GOOGLE_CALENDAR_STATE_COOKIE];
+    clearGoogleCalendarStateCookie(res);
+    const returnedState = String(req.query.state || '');
+    if (!req.query.code || !state || state.length !== returnedState.length || !crypto.timingSafeEqual(Buffer.from(state), Buffer.from(returnedState))) {
+      return res.redirect(returnUrl);
+    }
+    const config = getGoogleCalendarConfig();
+    const response = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code: String(req.query.code),
+        client_id: config.clientId,
+        client_secret: config.clientSecret,
+        redirect_uri: config.redirectUri,
+        grant_type: 'authorization_code'
+      })
+    });
+    const token = await response.json();
+    if (!response.ok || !token.refresh_token) throw new Error(token.error_description || 'Google authorization failed.');
+    writeGoogleCalendarTokenStore({
+      refreshToken: token.refresh_token,
+      accessToken: token.access_token,
+      expiresAt: Date.now() + Number(token.expires_in || 3600) * 1000,
+      scope: token.scope || GOOGLE_CALENDAR_SCOPE,
+      eventIds: {}
+    });
+    try {
+      await syncPlannerGoogleCalendar();
+    } catch (syncError) {
+      console.error('Initial Google Calendar sync failed:', syncError.message);
+    }
+    res.redirect('/?googleCalendar=connected');
+  } catch (error) {
+    console.error('Google Calendar callback failed:', error.message);
+    res.redirect(returnUrl);
+  }
+});
+
+app.post('/api/google-calendar/sync', async (req, res) => {
+  try {
+    const result = await syncPlannerGoogleCalendar();
+    res.json(result);
+  } catch (error) {
+    console.error('Google Calendar sync failed:', error.message);
+    res.status(500).json({ error: error.message || 'Google Calendar sync failed.' });
+  }
+});
+
+app.post('/api/google-calendar/share', async (req, res) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const role = req.body?.role === 'writer' ? 'writer' : 'reader';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: '공유할 Google 계정 이메일을 정확히 입력해 주세요.' });
+    }
+    const { store } = await getGoogleCalendarAccessToken();
+    const calendarId = await ensurePlannerGoogleCalendar(store);
+    const aclBody = JSON.stringify({
+      role,
+      scope: { type: 'user', value: email }
+    });
+    let rule;
+    try {
+      rule = await googleCalendarRequest(
+        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/acl?sendNotifications=true`,
+        { method: 'POST', body: aclBody }
+      );
+    } catch (error) {
+      if (error.status !== 409) throw error;
+      rule = await googleCalendarRequest(
+        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/acl/${encodeURIComponent(`user:${email}`)}?sendNotifications=true`,
+        { method: 'PUT', body: aclBody }
+      );
+    }
+    res.json({
+      shared: true,
+      email,
+      role: rule.role || role,
+      calendarName: store.calendarName || GOOGLE_CALENDAR_NAME
+    });
+  } catch (error) {
+    console.error('Google Calendar share failed:', error.message);
+    res.status(error.status || 500).json({ error: error.message || 'Google Calendar sharing failed.' });
+  }
+});
+
+app.post('/api/google-calendar/disconnect', (req, res) => {
+  try {
+    if (fs.existsSync(GOOGLE_CALENDAR_TOKEN_FILE)) fs.unlinkSync(GOOGLE_CALENDAR_TOKEN_FILE);
+    res.json({ disconnected: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Google Calendar connection could not be removed.' });
   }
 });
 
@@ -932,6 +941,7 @@ async function loginToKidsNoteBrowser(username, password) {
     browser = await puppeteer.launch({
       executablePath: CHROMIUM_EXECUTABLE,
       headless: true,
+
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
       timeout: 30000
     });
@@ -1082,312 +1092,6 @@ function clearSavedKidsNoteSession(req, res) {
     writeKidsNoteSessions(sessions);
   }
   res.setHeader('Set-Cookie', `${KIDSNOTE_SESSION_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`);
-}
-
-function parseCookieHeader(cookieHeader) {
-  return String(cookieHeader || '').split(';').map(part => {
-    const separator = part.indexOf('=');
-    if (separator < 1) return null;
-    return {
-      name: part.slice(0, separator).trim(),
-      value: part.slice(separator + 1).trim(),
-      domain: '.kidsnote.com',
-      path: '/'
-    };
-  }).filter(cookie => cookie?.name && cookie.value);
-}
-
-function isLikelyKidsNoteImageUrl(value) {
-  if (!value || /^(data:|blob:|javascript:)/i.test(value)) return false;
-  let url;
-  try {
-    url = new URL(value, 'https://www.kidsnote.com');
-  } catch {
-    return false;
-  }
-  if (!/^https?:$/.test(url.protocol)) return false;
-  const host = url.hostname.toLowerCase();
-  if (/(facebook|google|doubleclick|analytics|googletagmanager|sentry|intercom)/.test(host)) return false;
-  const pathname = url.pathname.toLowerCase();
-  if (/\.(svg|ico)$/i.test(pathname)) return false;
-  return /\.(jpe?g|png|webp|gif|heic)(?:$|\?)/i.test(`${pathname}${url.search}`) ||
-    /(kidsnote|amazonaws|cloudfront|cdn|image|photo|album|report)/i.test(`${host}${pathname}`);
-}
-
-function collectImageUrlsDeep(value, urls = new Set()) {
-  if (typeof value === 'string') {
-    if (isLikelyKidsNoteImageUrl(value)) urls.add(new URL(value, 'https://www.kidsnote.com').href);
-    return urls;
-  }
-  if (Array.isArray(value)) {
-    value.forEach(item => collectImageUrlsDeep(item, urls));
-    return urls;
-  }
-  if (value && typeof value === 'object') {
-    Object.values(value).forEach(item => collectImageUrlsDeep(item, urls));
-  }
-  return urls;
-}
-
-function getKidsNoteItemId(item) {
-  const value = item?.id || item?.uuid || item?.report_id || item?.album_id || item?.pk;
-  return value == null ? '' : String(value).trim();
-}
-
-function getKidsNoteItemDate(item) {
-  const value = item?.date_written || item?.written_at || item?.created_at || item?.created || item?.date || item?.updated_at || '';
-  const match = String(value || '').match(/^(\d{4}-\d{2}-\d{2})(?:[T\s](\d{2}:\d{2}(?::\d{2})?))?/);
-  if (!match) return '';
-  return match[2] ? `${match[1]}T${match[2]}` : match[1];
-}
-
-function getKidsNoteItemTitle(item) {
-  return stripHtml(item?.title || item?.subject || item?.name || item?.content_title || '').slice(0, 120);
-}
-
-function normalizeKidsNoteServiceUrl(value) {
-  if (!value) return '';
-  let url;
-  try {
-    url = new URL(String(value), 'https://www.kidsnote.com');
-  } catch {
-    return '';
-  }
-  if (url.hostname !== 'www.kidsnote.com') return '';
-  if (!/^\/service\/(report|album)(?:\/\d+)?\/?$/.test(url.pathname)) return '';
-  return url.href;
-}
-
-async function collectKidsNoteImageUrls(page, sourceType, sourcePage, candidates, discoveredPages) {
-  const result = await page.evaluate(() => {
-    const urls = new Set();
-    const links = new Set();
-    const addUrl = value => {
-      if (!value || /^(data:|blob:|javascript:)/i.test(value)) return;
-      try {
-        urls.add(new URL(value, location.href).href);
-      } catch {}
-    };
-    document.querySelectorAll('img').forEach(img => {
-      addUrl(img.currentSrc || img.src);
-      addUrl(img.getAttribute('data-src'));
-      addUrl(img.getAttribute('data-original'));
-      addUrl(img.getAttribute('data-lazy'));
-      addUrl(img.getAttribute('srcset')?.split(',').pop()?.trim()?.split(/\s+/)[0]);
-    });
-    document.querySelectorAll('[style*=\"background\"]').forEach(element => {
-      const style = element.getAttribute('style') || '';
-      for (const match of style.matchAll(/url\(["']?([^"')]+)["']?\)/g)) addUrl(match[1]);
-    });
-    document.querySelectorAll('a[href]').forEach(anchor => {
-      try {
-        const href = new URL(anchor.getAttribute('href'), location.href).href;
-        if (/\/service\/(report|album)/.test(new URL(href).pathname)) links.add(href);
-      } catch {}
-    });
-    return { urls: Array.from(urls), links: Array.from(links) };
-  });
-
-  for (const url of result.urls) {
-    if (isLikelyKidsNoteImageUrl(url)) candidates.set(url, { sourceType, sourcePage });
-  }
-  for (const link of result.links) {
-    if (!discoveredPages.has(link)) discoveredPages.add(link);
-  }
-}
-
-async function settleKidsNotePage(page) {
-  for (let round = 0; round < 3; round++) {
-    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await new Promise(resolve => setTimeout(resolve, 500));
-    const clicked = await page.evaluate(() => {
-      const buttons = Array.from(document.querySelectorAll('button, a')).filter(element => {
-        const text = (element.textContent || '').trim();
-        return /더\\s*보기|more|다음/i.test(text) && !element.disabled;
-      });
-      const target = buttons[0];
-      if (!target) return false;
-      target.click();
-      return true;
-    }).catch(() => false);
-    if (!clicked) {
-      const before = await page.evaluate(() => document.body.scrollHeight).catch(() => 0);
-      await new Promise(resolve => setTimeout(resolve, 300));
-      const after = await page.evaluate(() => document.body.scrollHeight).catch(() => 0);
-      if (after <= before) break;
-    }
-  }
-}
-
-async function withTimeout(promise, timeoutMs, label) {
-  let timer;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`${label} 시간이 초과되었습니다.`)), timeoutMs);
-      })
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function downloadKidsNoteImage(sourceUrl, session, meta) {
-  const response = await fetch(sourceUrl, {
-    headers: {
-      Cookie: session.cookie,
-      Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-      Referer: meta.sourcePage || 'https://www.kidsnote.com/service/report',
-      ...(session.enrollment ? { 'X-ENROLLMENT': session.enrollment } : {}),
-      'User-Agent': 'Mozilla/5.0 NEO-Planner-KidsNote-PhotoBackup/1.0'
-    },
-    redirect: 'follow',
-    signal: AbortSignal.timeout(30000)
-  });
-  if (!response.ok) return null;
-  const mimeType = response.headers.get('content-type') || '';
-  if (!mimeType.toLowerCase().startsWith('image/')) return null;
-  const buffer = Buffer.from(await response.arrayBuffer());
-  return addBackedUpPhoto({
-    sourceUrl,
-    buffer,
-    mimeType,
-    sourcePage: meta.sourcePage,
-    sourceType: meta.sourceType,
-    sourceDate: meta.sourceDate,
-    sourceTitle: meta.sourceTitle
-  });
-}
-
-function getKidsNoteImageUrlsFromItem(item) {
-  const urls = new Set();
-  const images = [
-    ...(Array.isArray(item?.attached_images) ? item.attached_images : []),
-    ...(Array.isArray(item?.images) ? item.images : []),
-    ...(Array.isArray(item?.photos) ? item.photos : [])
-  ];
-  for (const image of images) {
-    if (typeof image === 'string') {
-      if (isLikelyKidsNoteImageUrl(image)) urls.add(new URL(image).href);
-      continue;
-    }
-    for (const key of ['original', 'download_url', 'file', 'image', 'url', 'large']) {
-      if (image?.[key] && isLikelyKidsNoteImageUrl(image[key])) {
-        urls.add(new URL(image[key]).href);
-        break;
-      }
-    }
-  }
-  return Array.from(urls);
-}
-
-async function fetchKidsNoteCollection(childId, cookie, collection, options = {}) {
-  const items = [];
-  const endpoint = `https://www.kidsnote.com/api/v1_2/children/${childId}/${collection}/?page_size=5000`;
-  let nextUrl = endpoint;
-  const maxPages = Math.max(1, Math.min(50, Number(options.maxPages) || 50));
-  const seenUrls = new Set();
-  for (let page = 0; nextUrl && page < maxPages; page++) {
-    const url = new URL(nextUrl, endpoint);
-    if (seenUrls.has(url.href)) break;
-    seenUrls.add(url.href);
-    const expectedPath = new RegExp(`/children/${String(childId)}/${collection}(?:/|$)`);
-    if (url.protocol !== 'https:' || !['www.kidsnote.com', 'kapi.kidsnote.com'].includes(url.hostname) || !expectedPath.test(url.pathname)) {
-      throw new Error(`키즈노트 ${collection} 다음 페이지 주소가 올바르지 않습니다.`);
-    }
-    const response = await fetch(url, {
-      headers: {
-        Cookie: cookie.trim(),
-        Accept: 'application/json',
-        ...(options.enrollment ? { 'X-ENROLLMENT': options.enrollment } : {}),
-        'User-Agent': 'NEO-Planner-KidsNote-PhotoBackup/1.0'
-      },
-      redirect: 'manual',
-      signal: AbortSignal.timeout(20000)
-    });
-    if (response.status === 401 || response.status === 403 || response.status === 302) {
-      const error = new Error('키즈노트 로그인이 만료되었습니다. 다시 로그인해 주세요.');
-      error.status = 401;
-      throw error;
-    }
-    if (!response.ok) throw new Error(`키즈노트 ${collection} 조회에 실패했습니다. (${response.status})`);
-    const payload = await response.json();
-    items.push(...getKidsNoteReports(payload));
-    const resolvedNextUrl = getKidsNoteNextCollectionUrl(payload.next, endpoint);
-    nextUrl = resolvedNextUrl && !seenUrls.has(resolvedNextUrl) ? resolvedNextUrl : '';
-  }
-  return items;
-}
-
-async function crawlKidsNotePhotos(session, job, options = {}) {
-  const candidates = new Map();
-  const collections = [
-    { name: 'reports', sourceType: 'report', servicePath: 'report' },
-    { name: 'albums', sourceType: 'album', servicePath: 'album' }
-  ];
-
-  for (const collection of collections) {
-    let items;
-    try {
-      job.progress.currentPage = `api:${collection.name}`;
-      items = await fetchKidsNoteCollection(session.childId, session.cookie, collection.name, {
-        enrollment: session.enrollment,
-        maxPages: options.maxPages
-      });
-    } catch (error) {
-      job.progress.failedPages = (job.progress.failedPages || 0) + 1;
-      console.warn(`KidsNote ${collection.name} API scan failed:`, error.message);
-      continue;
-    }
-
-    job.progress.pagesVisited = (job.progress.pagesVisited || 0) + 1;
-    for (const item of items) {
-      const itemId = getKidsNoteItemId(item);
-      const sourceDate = getKidsNoteItemDate(item);
-      const sourceTitle = getKidsNoteItemTitle(item);
-      const sourcePage = itemId && /^\d+$/.test(itemId)
-        ? `https://www.kidsnote.com/service/${collection.servicePath}/${itemId}`
-        : `https://www.kidsnote.com/service/${collection.servicePath}`;
-      for (const imageUrl of getKidsNoteImageUrlsFromItem(item)) {
-        candidates.set(imageUrl, { sourceType: collection.sourceType, sourcePage, sourceDate, sourceTitle });
-      }
-    }
-    job.progress.found = candidates.size;
-    job.progress[collection.name] = items.length;
-  }
-
-  const existingPhotosByUrl = buildExistingPhotoUrlMap();
-  const existingUrls = new Set(existingPhotosByUrl.keys());
-  let saved = 0;
-  let skipped = 0;
-  let failed = 0;
-  let processed = 0;
-  const entries = Array.from(candidates.entries());
-  for (const [sourceUrl, meta] of entries) {
-    processed++;
-    job.progress = { ...job.progress, found: entries.length, processed, saved, skipped, failed, currentImage: sourceUrl };
-    if (existingUrls.has(sourceUrl)) {
-      if (shouldUpdatePhotoMeta(existingPhotosByUrl.get(sourceUrl), meta)) {
-        updateExistingPhotoMeta(sourceUrl, meta);
-      }
-      skipped++;
-      continue;
-    }
-    try {
-      const photo = await downloadKidsNoteImage(sourceUrl, session, meta);
-      if (photo) {
-        existingUrls.add(sourceUrl);
-        saved++;
-      } else {
-        skipped++;
-      }
-    } catch (error) {
-      failed++;
-      console.warn('KidsNote photo download failed:', sourceUrl, error.message);
-    }
-  }
-  return { found: entries.length, saved, skipped, failed, pagesVisited: job.progress.pagesVisited || 0 };
 }
 
 function formatKidsNoteReport(report, index) {
@@ -1582,6 +1286,7 @@ function buildKidsNoteFallbackEvents(formattedReports, referenceDate) {
           startDate: `${match.date}T00:00:00${fallbackOffset}`,
           endDate: `${match.date}T23:59:59${fallbackOffset}`,
           allDay: true,
+
           priority: /(마감|까지|제출|신청|납부|입금|준비물|지참)/.test(segment) ? 'high' : 'medium',
           category: /(수업|검사|검진|입학|졸업|발표회|운동회|오리엔테이션|설명회)/.test(segment) ? 'study' : 'general',
           dateReason: `키즈노트 본문의 "${match.expression}" 표현을 공지 작성일 ${report.writtenAt || 'unknown'} 기준 ${match.date}로 해석`,
@@ -1840,69 +1545,6 @@ app.delete('/api/kidsnote/session', (req, res) => {
   res.json({ connected: false });
 });
 
-app.post('/api/photos/kidsnote-backup/start', (req, res) => {
-  const session = getSavedKidsNoteSession(req);
-  if (!session) return res.status(401).json({ error: '저장된 키즈노트 로그인이 없거나 만료되었습니다.' });
-  for (const [existingJobId, existingJob] of photoBackupJobs.entries()) {
-    if (existingJob.ownerToken === session.token && existingJob.status === 'processing') {
-      return res.status(202).json({ jobId: existingJobId, status: existingJob.status, reused: true });
-    }
-  }
-  const extraUrls = String(req.body?.extraUrl || '')
-    .split(/\s+/)
-    .map(normalizeKidsNoteServiceUrl)
-    .filter(Boolean);
-
-  const jobId = crypto.randomBytes(24).toString('base64url');
-  const job = {
-    ownerToken: session.token,
-    status: 'processing',
-    createdAt: Date.now(),
-    progress: { pagesVisited: 0, found: 0, processed: 0, saved: 0, skipped: 0, failed: 0, currentPage: '', currentImage: '' },
-    result: null,
-    error: ''
-  };
-  photoBackupJobs.set(jobId, job);
-
-  setImmediate(async () => {
-    try {
-      job.result = await crawlKidsNotePhotos(session, job, { extraUrls });
-      job.progress = { ...job.progress, ...job.result, currentPage: '', currentImage: '' };
-      job.status = 'completed';
-    } catch (error) {
-      console.error('KidsNote photo backup error:', error.message);
-      job.error = error.message || '키즈노트 사진 백업에 실패했습니다.';
-      job.status = 'failed';
-    }
-  });
-
-  res.status(202).json({ jobId, status: job.status });
-});
-
-app.get('/api/photos/kidsnote-backup/jobs/:jobId', (req, res) => {
-  const session = getSavedKidsNoteSession(req);
-  const job = photoBackupJobs.get(req.params.jobId);
-  if (!session || !job || job.ownerToken !== session.token) {
-    return res.status(404).json({ error: '사진 백업 작업을 찾을 수 없습니다.' });
-  }
-  if (job.status === 'completed') {
-    photoBackupJobs.delete(req.params.jobId);
-    return res.json({ status: 'completed', result: job.result, progress: job.progress });
-  }
-  if (job.status === 'failed') {
-    photoBackupJobs.delete(req.params.jobId);
-    return res.status(500).json({ status: 'failed', error: job.error, progress: job.progress });
-  }
-  res.json({ status: 'processing', progress: job.progress });
-});
-
-setInterval(() => {
-  const cutoff = Date.now() - 2 * 60 * 60 * 1000;
-  for (const [jobId, job] of photoBackupJobs) {
-    if (job.createdAt < cutoff) photoBackupJobs.delete(jobId);
-  }
-}, 10 * 60 * 1000).unref();
-
 // Parse a user's direct natural-language schedule request into reviewable events.
 app.post('/api/todos/parse-natural-language', async (req, res) => {
   const { text, baseDate } = req.body;
@@ -2019,6 +1661,7 @@ Return one JSON object containing events and clarification. Return no prose or m
 
 // Serve frontend SPA index.html for all other routes
 app.get('*', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
