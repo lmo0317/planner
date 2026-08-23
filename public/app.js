@@ -837,6 +837,30 @@ async function fetchTodos() {
   }
 }
 
+function normalizeMirrorTitle(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+}
+
+function mirrorDateTimesMatch(plannerValue, googleValue, allDay) {
+  if (!plannerValue || !googleValue) return false;
+  if (allDay) return String(plannerValue).slice(0, 10) === String(googleValue).slice(0, 10);
+  const plannerTime = new Date(plannerValue).getTime();
+  const googleTime = new Date(googleValue).getTime();
+  if (Number.isNaN(plannerTime) || Number.isNaN(googleTime)) {
+    return String(plannerValue).slice(0, 16) === String(googleValue).slice(0, 16);
+  }
+  return Math.abs(plannerTime - googleTime) < 60000;
+}
+
+function areGoogleMirrorTodosEquivalent(plannerTodo, googleTodo) {
+  if (normalizeMirrorTitle(plannerTodo.title) !== normalizeMirrorTitle(googleTodo.title)) return false;
+  const plannerAllDay = Boolean(plannerTodo.allDay);
+  const googleAllDay = Boolean(googleTodo.allDay);
+  if (plannerAllDay !== googleAllDay) return false;
+  return mirrorDateTimesMatch(plannerTodo.startDate, googleTodo.startDate, plannerAllDay)
+    && mirrorDateTimesMatch(plannerTodo.endDate, googleTodo.endDate, plannerAllDay);
+}
+
 function mergePlannerAndGoogleTodos(plannerTodos, googleTodos) {
   const plannerById = new Map(plannerTodos.map(todo => [String(todo.id), todo]));
   const plannerGoogleEventIds = new Set(plannerTodos.map(todo => todo.googleEventId).filter(Boolean).map(String));
@@ -845,7 +869,8 @@ function mergePlannerAndGoogleTodos(plannerTodos, googleTodos) {
 
   googleTodos.forEach(googleTodo => {
     const plannerTodoId = googleTodo.plannerTodoId == null ? '' : String(googleTodo.plannerTodoId);
-    if (plannerTodoId && plannerById.has(plannerTodoId)) {
+    const plannerTodo = plannerById.get(plannerTodoId);
+    if (plannerTodo && areGoogleMirrorTodosEquivalent(plannerTodo, googleTodo)) {
       mirrorsByPlannerId.set(plannerTodoId, googleTodo);
       googleSyncedTodoIds.add(plannerTodoId);
       return;
