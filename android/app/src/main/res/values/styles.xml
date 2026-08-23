@@ -1,0 +1,9 @@
+<resources>
+    <style name="Theme.NEOPlanner" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="colorPrimary">@color/purple_500</item>
+        <item name="colorPrimaryDark">@color/status_bar_bg</item>
+        <item name="colorAccent">@color/teal_200</item>
+        <item name="android:statusBarColor">@color/status_bar_bg</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>

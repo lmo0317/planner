@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b1820">
+  <title>키즈노트 사진 저장 도우미</title>
+  <link rel="stylesheet" href="/kids-note-gallery.css?v=20260815-1">
+</head>
+<body>
+  <header class="app-header">
+    <div><p class="eyebrow">비공식 사진 저장 도우미</p><h1>키즈노트 사진 보관함</h1></div>
+    <button id="sessionButton" class="header-button" type="button">로그인</button>
+  </header>
+  <p class="disclaimer">키즈노트 운영사와 무관한 독립적인 비공식 서비스입니다.</p>
+
+  <main>
+    <section id="loginCard" class="card login-card" hidden>
+      <div class="section-heading"><div><span class="step">계정 연결</span><h2>키즈노트 로그인</h2></div></div>
+      <p class="muted">입력한 계정은 로그인에만 사용하며 브라우저에 저장하지 않습니다.</p>
+      <form id="loginForm">
+        <label>아이디<input id="username" name="username" autocomplete="username" required></label>
+        <label>비밀번호<input id="password" name="password" type="password" autocomplete="current-password" required></label>
+        <button class="primary" type="submit">계정 연결하기</button>
+      </form>
+    </section>
+
+    <section class="toolbar card">
+      <label class="year-label">사진 연도<select id="yearSelect"></select></label>
+      <button id="loadButton" class="primary" type="button">사진 불러오기</button>
+    </section>
+
+    <section class="gallery-section">
+      <div class="gallery-heading"><div><h2 id="galleryTitle">사진 갤러리</h2><p id="statusText">로그인 후 사진을 불러오세요.</p></div></div>
+      <div id="emptyState" class="empty"><span>▧</span><strong>아직 불러온 사진이 없습니다</strong><small>연도를 선택한 뒤 사진 불러오기를 눌러주세요.</small></div>
+      <div id="gallery" class="gallery" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <dialog id="viewer">
+    <button id="closeViewer" class="viewer-close" type="button" aria-label="닫기">×</button>
+    <img id="viewerImage" alt="키즈노트 원본 사진">
+    <div class="viewer-footer"><span id="viewerDate"></span><a id="saveOriginal" target="_blank" rel="noopener">원본 열기</a></div>
+  </dialog>
+  <script src="/kids-note-gallery.js?v=20260815-1"></script>
+</body>
+</html>

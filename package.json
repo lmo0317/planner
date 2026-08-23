@@ -5,7 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "sync-android": "node scripts/sync-android.js",
+    "install-android": "node scripts/install-android.js"
   },
   "keywords": [],
   "author": "",
@@ -15,6 +17,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "lucide": "1.31.0",
     "morgan": "^1.10.0",
     "puppeteer-core": "^24.43.0"
   },

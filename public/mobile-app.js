@@ -1,3 +1,5 @@
+document.documentElement.dataset.frontend = 'mobile';
+
 // State management
 let currentViewDate = new Date();
 let currentView = 'month'; // 'month' or 'list'
@@ -10,6 +12,9 @@ const holidayCache = new Map();
 const holidayRequests = new Map();
 let calendarWeekLaneCache = new Map();
 let mobileSelectedDate = formatDateString(new Date());
+let monthSwipeStartX = 0;
+let monthSwipeStartY = 0;
+let monthSwipeTracking = false;
 
 // DOM Elements
 const calendarGrid = document.getElementById('calendar-grid');
@@ -55,16 +60,6 @@ const dayAgendaTitle = document.getElementById('day-agenda-title');
 const dayAgendaCount = document.getElementById('day-agenda-count');
 const dayAgendaList = document.getElementById('day-agenda-list');
 let dayAgendaDate = null;
-const btnTimeTree = document.getElementById('btn-timetree');
-const timeTreeModal = document.getElementById('timetree-modal');
-const timeTreeStatus = document.getElementById('timetree-status');
-const timeTreeLoginForm = document.getElementById('timetree-login-form');
-const timeTreeEmail = document.getElementById('timetree-email');
-const timeTreePassword = document.getElementById('timetree-password');
-const btnTimeTreeLogin = document.getElementById('btn-timetree-login');
-const btnTimeTreeDisconnect = document.getElementById('btn-timetree-disconnect');
-const closeTimeTreeModal = document.getElementById('close-timetree-modal');
-let timeTreeSyncedTodoIds = new Set();
 
 // Views Panels
 const calendarViewPanel = document.getElementById('calendar-view');
@@ -76,6 +71,18 @@ const dayGrid = document.getElementById('day-grid');
 const sidebarCloseBtn = document.getElementById('sidebar-close-btn');
 const sidebarSettingsBtn = document.getElementById('sidebar-settings-btn');
 const btnGoogleCalendar = document.getElementById('btn-google-calendar');
+const googleCalendarMenuStatus = document.getElementById('google-calendar-menu-status');
+const googleCalendarMenuStatusText = googleCalendarMenuStatus?.querySelector('.google-calendar-menu-status-text');
+const btnTimeTree = document.getElementById('btn-timetree');
+const timeTreeModal = document.getElementById('timetree-modal');
+const timeTreeStatus = document.getElementById('timetree-status');
+const timeTreeLoginForm = document.getElementById('timetree-login-form');
+const timeTreeEmail = document.getElementById('timetree-email');
+const timeTreePassword = document.getElementById('timetree-password');
+const btnTimeTreeLogin = document.getElementById('btn-timetree-login');
+const btnTimeTreeDisconnect = document.getElementById('btn-timetree-disconnect');
+const closeTimeTreeModal = document.getElementById('close-timetree-modal');
+let timeTreeSyncedTodoIds = new Set();
 const googleCalendarModal = document.getElementById('google-calendar-modal');
 const closeGoogleCalendarModalBtn = document.getElementById('close-google-calendar-modal');
 const googleCalendarStatus = document.getElementById('google-calendar-status');
@@ -90,6 +97,14 @@ let googleCalendarConfigured = false;
 let googleCalendarConnected = false;
 let googleCalendarSelected = false;
 let googleSyncedTodoIds = new Set();
+let nativeGoogleCalendarConnected = false;
+
+function setGoogleCalendarMenuStatus(state, text) {
+  if (!googleCalendarMenuStatus) return;
+  googleCalendarMenuStatus.classList.remove('is-checking', 'is-connected', 'is-disconnected', 'is-error');
+  googleCalendarMenuStatus.classList.add(`is-${state}`);
+  if (googleCalendarMenuStatusText) googleCalendarMenuStatusText.textContent = text;
+}
 
 function setGoogleCalendarModalStatus(state, title, detail) {
   googleCalendarStatusCard?.classList.remove('is-checking', 'is-connected', 'is-disconnected', 'is-error');
@@ -97,6 +112,27 @@ function setGoogleCalendarModalStatus(state, title, detail) {
   if (googleCalendarStatusTitle) googleCalendarStatusTitle.textContent = title;
   if (googleCalendarStatus) googleCalendarStatus.textContent = detail;
 }
+
+let isGoogleSyncing = false;
+let isExplicitGoogleSyncRequest = false;
+
+window.handleNativeBackButton = () => {
+  if (document.querySelector('.modal.open')) {
+    document.querySelector('.modal.open')?.classList.remove('open');
+    return true;
+  }
+  const appContainer = document.querySelector('.app-container');
+  if (appContainer?.classList.contains('mobile-menu-open')) {
+    appContainer.classList.remove('mobile-menu-open');
+    return true;
+  }
+  if (mobileSearchPanel?.classList.contains('open')) {
+    mobileSearchPanel.classList.remove('open');
+    mobileSearchPanel.setAttribute('aria-hidden', 'true');
+    return true;
+  }
+  return false;
+};
 
 // List view containers
 const pendingList = document.getElementById('pending-list');
@@ -225,6 +261,11 @@ function appendLinkedContent(element, value) {
 function initApp() {
   if (kidsNoteStartDate) {
     kidsNoteStartDate.value = formatDateString(new Date());
+    kidsNoteStartDate.addEventListener('click', () => {
+      openMobileDatePicker(kidsNoteStartDate, kidsNoteStartDate.value, selected => {
+        kidsNoteStartDate.value = selected;
+      });
+    });
   }
   initTheme();
   setupEventListeners();
@@ -233,6 +274,7 @@ function initApp() {
   setupGoogleCalendarEventListeners();
   showGoogleCalendarCallbackResult();
   fetchTodos();
+  updateVisibleScheduleSubtitle();
   refreshGoogleCalendarStatus();
 }
 
@@ -245,13 +287,10 @@ if (document.readyState === 'loading') {
 function setupTimeTreeEventListeners() {
   btnTimeTree?.addEventListener('click', async () => {
     document.querySelector('.app-container')?.classList.remove('mobile-menu-open');
-    timeTreeModal?.classList.add('open');
+    timeTreeModal.classList.add('open');
     await refreshTimeTreeStatus();
   });
-  closeTimeTreeModal?.addEventListener('click', () => timeTreeModal?.classList.remove('open'));
-  timeTreeModal?.addEventListener('click', event => {
-    if (event.target === timeTreeModal) timeTreeModal.classList.remove('open');
-  });
+  closeTimeTreeModal?.addEventListener('click', () => timeTreeModal.classList.remove('open'));
   btnTimeTreeLogin?.addEventListener('click', async () => {
     btnTimeTreeLogin.disabled = true;
     timeTreeStatus.textContent = '타임트리에 로그인하고 있습니다...';
@@ -265,10 +304,7 @@ function setupTimeTreeEventListeners() {
     } catch (error) { timeTreeStatus.textContent = error.message; }
     finally { btnTimeTreeLogin.disabled = false; }
   });
-  btnTimeTreeDisconnect?.addEventListener('click', async () => {
-    await fetch('/api/timetree/session', { method: 'DELETE' });
-    await refreshTimeTreeStatus();
-  });
+  btnTimeTreeDisconnect?.addEventListener('click', async () => { await fetch('/api/timetree/session', { method: 'DELETE' }); await refreshTimeTreeStatus(); });
 }
 
 async function refreshTimeTreeStatus() {
@@ -277,9 +313,9 @@ async function refreshTimeTreeStatus() {
     const result = await response.json();
     timeTreeSyncedTodoIds = new Set(result.syncedTodoIds || []);
     timeTreeStatus.textContent = result.connected ? '타임트리가 연결되어 있습니다.' : '이메일과 설정한 비밀번호로 로그인해 주세요.';
-    timeTreeLoginForm?.classList.toggle('hidden', result.connected);
-    btnTimeTreeDisconnect?.classList.toggle('hidden', !result.connected);
-  } catch { if (timeTreeStatus) timeTreeStatus.textContent = '연결 상태를 확인하지 못했습니다.'; }
+    timeTreeLoginForm.classList.toggle('hidden', result.connected);
+    btnTimeTreeDisconnect.classList.toggle('hidden', !result.connected);
+  } catch { timeTreeStatus.textContent = '연결 상태를 확인하지 못했습니다.'; }
 }
 
 async function syncTodoWithTimeTree(todo, button, force = false) {
@@ -316,8 +352,15 @@ function setupGoogleCalendarEventListeners() {
     if (event.target === googleCalendarModal) googleCalendarModal.classList.remove('open');
   });
   btnConnectGoogleCalendar?.addEventListener('click', () => {
+    if (window.NativePlanner?.startGoogleCalendarLogin) {
+      btnConnectGoogleCalendar.disabled = true;
+      btnConnectGoogleCalendar.textContent = 'Google 로그인 여는 중...';
+      window.NativePlanner.startGoogleCalendarLogin();
+      return;
+    }
     if (!googleCalendarConfigured) {
-      showToast('Google 연결은 아직 운영자 설정이 완료되지 않았습니다.', 'info');
+      window.open('https://console.cloud.google.com/apis/credentials', '_blank', 'noopener,noreferrer');
+      showToast('최초 1회 운영자 설정 후 일반 사용자는 Google 로그인만 하면 됩니다.', 'info');
       return;
     }
     window.location.assign(`/api/google-calendar/connect${window.location.pathname.startsWith('/m') ? '?mobile=1' : ''}`);
@@ -357,7 +400,27 @@ function setupGoogleCalendarEventListeners() {
   });
 }
 
+window.handleNativeGoogleLoginResult = async (success, message, wasExplicit = true) => {
+  nativeGoogleCalendarConnected = Boolean(success);
+  setGoogleCalendarMenuStatus(success ? 'connected' : 'disconnected', success ? '연결됨' : '미연결');
+  setGoogleCalendarModalStatus(success ? 'connected' : 'disconnected', success ? '연결 완료' : '연결되지 않음', message || (success ? 'Google Calendar와 연결되었습니다.' : '다시 시도해 주세요.'));
+  if (btnConnectGoogleCalendar) {
+    btnConnectGoogleCalendar.disabled = false;
+    btnConnectGoogleCalendar.textContent = success ? 'Google 계정 변경' : 'Google 로그인 다시 시도';
+  }
+  if (wasExplicit) {
+    showToast(message || (success ? 'Google Calendar 연결이 완료되었습니다.' : 'Google 로그인에 실패했습니다.'), success ? 'success' : 'danger');
+  }
+  if (success) {
+    await refreshGoogleCalendarStatus();
+  }
+};
+
 window.handleNativeGoogleSyncResult = async (success, message, importedTodosJson) => {
+  const wasExplicit = isExplicitGoogleSyncRequest;
+  isExplicitGoogleSyncRequest = false;
+  isGoogleSyncing = false;
+
   if (success && importedTodosJson) {
     try {
       const importedTodos = typeof importedTodosJson === 'string' ? JSON.parse(importedTodosJson) : importedTodosJson;
@@ -381,7 +444,9 @@ window.handleNativeGoogleSyncResult = async (success, message, importedTodosJson
       }
     } catch (e) { console.error('Failed to process imported Google todos:', e); }
   }
-  showToast(message || (success ? 'Google Calendar 동기화가 완료되었습니다.' : 'Google Calendar 동기화에 실패했습니다.'), success ? 'success' : 'danger');
+  if (wasExplicit || !success) {
+    showToast(message || (success ? 'Google Calendar 동기화가 완료되었습니다.' : 'Google Calendar 동기화에 실패했습니다.'), success ? 'success' : 'danger');
+  }
 };
 
 function updateGoogleFilterLabel(name) {
@@ -427,23 +492,22 @@ async function loadGoogleCalendarTargets(selectedCalendarId) {
 
 async function refreshGoogleCalendarStatus() {
   if (!googleCalendarStatus) return;
+  setGoogleCalendarMenuStatus('checking', '확인 중');
   setGoogleCalendarModalStatus('checking', '확인 중', '연결 상태를 확인하고 있습니다.');
   try {
     if (window.NativePlanner?.getGoogleCalendarStatus) {
       const nativeStatus = JSON.parse(window.NativePlanner.getGoogleCalendarStatus());
+      nativeGoogleCalendarConnected = Boolean(nativeStatus.connected);
       googleCalendarConnected = Boolean(nativeStatus.connected);
       googleCalendarSelected = Boolean(nativeStatus.calendarId);
       if (nativeStatus.calendarName) {
         updateGoogleFilterLabel(nativeStatus.calendarName);
       }
+      setGoogleCalendarMenuStatus(nativeStatus.connected ? 'connected' : 'disconnected', nativeStatus.connected ? '연결됨' : '미연결');
       googleCalendarConfigured = true;
-      setGoogleCalendarModalStatus(
-        nativeStatus.connected ? 'connected' : 'disconnected',
-        nativeStatus.connected ? '연결됨' : 'Google 계정 연결',
-        nativeStatus.connected
-          ? (nativeStatus.calendarId ? `${nativeStatus.email || 'Google 계정'} · ‘${nativeStatus.calendarName || 'Google'}’ 캘린더를 표시합니다.` : `${nativeStatus.email || 'Google 계정'} · 사용할 캘린더를 선택해 주세요.`)
-          : '플래너 일정을 Google 캘린더에서도 볼 수 있습니다.'
-      );
+      setGoogleCalendarModalStatus(nativeStatus.connected ? 'connected' : 'disconnected', nativeStatus.connected ? '연결됨' : 'Google 계정 연결', nativeStatus.connected
+        ? (nativeStatus.calendarId ? `${nativeStatus.email || 'Google 계정'} · ‘${nativeStatus.calendarName || 'Google'}’ 캘린더를 표시합니다.` : `${nativeStatus.email || 'Google 계정'} · 사용할 캘린더를 선택해 주세요.`)
+        : '플래너 일정을 Google 캘린더에서도 볼 수 있습니다.');
       btnConnectGoogleCalendar.textContent = nativeStatus.connected ? 'Google 계정 변경' : 'Google 계정 연결';
       btnConnectGoogleCalendar?.classList.remove('hidden');
       btnDisconnectGoogleCalendar?.classList.add('hidden');
@@ -462,6 +526,7 @@ async function refreshGoogleCalendarStatus() {
     googleCalendarSelected = Boolean(status.calendarId);
     googleSyncedTodoIds = new Set((status.syncedTodoIds || []).map(String));
     if (!status.configured) {
+      setGoogleCalendarMenuStatus('disconnected', '미연결');
       setGoogleCalendarModalStatus('disconnected', '연결 준비 안 됨', '잠시 후 다시 시도해 주세요.');
       btnConnectGoogleCalendar.textContent = '연결할 수 없음';
       btnConnectGoogleCalendar.disabled = true;
@@ -471,13 +536,19 @@ async function refreshGoogleCalendarStatus() {
       googleCalendarTargetPanel?.classList.add('hidden');
       return;
     }
-    btnConnectGoogleCalendar?.classList.remove('is-disabled');
-    btnConnectGoogleCalendar?.removeAttribute('aria-disabled');
-    btnConnectGoogleCalendar.disabled = false;
     if (status.connected) {
+      btnConnectGoogleCalendar.disabled = false;
+      btnConnectGoogleCalendar?.classList.remove('is-disabled');
+      btnConnectGoogleCalendar?.removeAttribute('aria-disabled');
+      setGoogleCalendarMenuStatus(status.sharingReady ? 'connected' : 'disconnected', status.sharingReady ? '연결됨' : '재로그인 필요');
       if (status.sharingReady) {
         setGoogleCalendarModalStatus('connected', '연결됨', status.calendarId ? `${status.account?.email || 'Google 계정'} · ‘${status.calendarName}’ 캘린더를 표시합니다.` : `${status.account?.email || 'Google 계정'} · 사용할 캘린더를 선택해 주세요.`);
-        btnConnectGoogleCalendar?.classList.add('hidden');
+        if (window.NativePlanner?.startGoogleCalendarLogin) {
+          btnConnectGoogleCalendar.textContent = 'Google 계정 변경';
+          btnConnectGoogleCalendar?.classList.remove('hidden');
+        } else {
+          btnConnectGoogleCalendar?.classList.add('hidden');
+        }
         googleCalendarTargetPanel?.classList.remove('hidden');
         await loadGoogleCalendarTargets(status.calendarId);
       } else {
@@ -488,6 +559,7 @@ async function refreshGoogleCalendarStatus() {
       }
       btnDisconnectGoogleCalendar?.classList.remove('hidden');
     } else {
+      setGoogleCalendarMenuStatus('disconnected', status.reconnectRequired ? '재로그인 필요' : '미연결');
       setGoogleCalendarModalStatus('disconnected', status.reconnectRequired ? '다시 연결해 주세요' : 'Google 계정 연결', status.reconnectRequired ? 'Google 계정 연결이 만료되었습니다.' : '플래너 일정을 Google 캘린더에서도 볼 수 있습니다.');
       btnConnectGoogleCalendar.textContent = status.reconnectRequired ? 'Google 계정 다시 연결' : 'Google 계정 연결';
       btnConnectGoogleCalendar?.classList.remove('hidden');
@@ -496,8 +568,13 @@ async function refreshGoogleCalendarStatus() {
     }
   } catch (error) {
     googleCalendarConnected = false;
+    setGoogleCalendarMenuStatus('error', '확인 실패');
     setGoogleCalendarModalStatus('error', '상태 확인 실패', '인터넷 또는 플래너 서버를 확인한 뒤 다시 시도해 주세요.');
-    showToast(error.message, 'danger');
+    if (btnConnectGoogleCalendar) {
+      btnConnectGoogleCalendar.disabled = false;
+      btnConnectGoogleCalendar.textContent = '연결 상태 다시 확인';
+      btnConnectGoogleCalendar.classList.remove('hidden');
+    }
   }
 }
 
@@ -609,12 +686,22 @@ function setupEventListeners() {
       }
     });
   });
-  mobileMenuButton?.addEventListener('click', () => {
-    document.querySelector('.app-container')?.classList.toggle('mobile-menu-open');
+  mobileMenuButton?.addEventListener('click', (e) => {
+    e.preventDefault();
+    const appContainer = document.querySelector('.app-container');
+    appContainer?.classList.toggle('mobile-menu-open');
+    if (appContainer?.classList.contains('mobile-menu-open')) {
+      setTimeout(() => refreshGoogleCalendarStatus(), 60);
+    }
   });
-  mobileMoreButton?.addEventListener('click', () => {
-    document.querySelector('.app-container')?.classList.toggle('mobile-menu-open');
+  mobileMoreButton?.addEventListener('click', (e) => {
+    e.preventDefault();
+    const appContainer = document.querySelector('.app-container');
+    appContainer?.classList.toggle('mobile-menu-open');
     mobileMoreButton.classList.toggle('active');
+    if (appContainer?.classList.contains('mobile-menu-open')) {
+      setTimeout(() => refreshGoogleCalendarStatus(), 60);
+    }
   });
   mobileSearchButton?.addEventListener('click', () => {
     mobileSearchPanel?.classList.add('open');
@@ -642,8 +729,10 @@ function setupEventListeners() {
     }
   });
   mobileNavItems.forEach(item => {
-    item.addEventListener('click', () => {
+    item.addEventListener('click', (e) => {
+      e.preventDefault();
       const targetView = item.dataset.mobileView;
+      if (currentView === targetView) return;
       viewSelectors.forEach(view => view.classList.toggle('active', view.dataset.view === targetView));
       mobileNavItems.forEach(nav => nav.classList.toggle('active', nav === item));
       currentView = targetView;
@@ -682,10 +771,12 @@ function setupEventListeners() {
   });
 
   // Task Modal triggers
-  btnNewTask.addEventListener('click', () => openModal());
+  btnNewTask.addEventListener('click', () => {
+    document.querySelector('.app-container')?.classList.remove('mobile-menu-open');
+    openModal();
+  });
   closeModalBtn.addEventListener('click', closeModal);
   btnCancelModal.addEventListener('click', closeModal);
-
   taskForm.addEventListener('submit', handleFormSubmit);
   btnDeleteTask.addEventListener('click', handleDeleteTask);
   btnSyncTaskGoogle?.addEventListener('click', syncCurrentTaskToGoogle);
@@ -746,6 +837,41 @@ function setupEventListeners() {
   });
   mobileNextBtn?.addEventListener('click', () => {
     navigateCalendarWithAnim(1);
+  });
+
+
+  const swipePanels = [calendarViewPanel, weekViewPanel, dayViewPanel].filter(Boolean);
+  swipePanels.forEach(panel => {
+    panel.addEventListener('touchstart', event => {
+      if (event.touches.length !== 1 || currentView === 'list') return;
+      monthSwipeStartX = event.touches[0].clientX;
+      monthSwipeStartY = event.touches[0].clientY;
+      monthSwipeTracking = true;
+    }, { passive: true });
+
+    panel.addEventListener('touchmove', event => {
+      if (!monthSwipeTracking || event.touches.length !== 1) return;
+      const deltaX = event.touches[0].clientX - monthSwipeStartX;
+      const deltaY = event.touches[0].clientY - monthSwipeStartY;
+      if (Math.abs(deltaX) > 12 && Math.abs(deltaX) > Math.abs(deltaY) * 1.25) {
+        event.preventDefault();
+      }
+    }, { passive: false });
+
+    panel.addEventListener('touchend', event => {
+      if (!monthSwipeTracking || currentView === 'list') return;
+      monthSwipeTracking = false;
+      const touch = event.changedTouches[0];
+      const deltaX = touch.clientX - monthSwipeStartX;
+      const deltaY = touch.clientY - monthSwipeStartY;
+      if (Math.abs(deltaX) >= 55 && Math.abs(deltaX) > Math.abs(deltaY) * 1.25) {
+        navigateCalendarWithAnim(deltaX < 0 ? 1 : -1);
+      }
+    }, { passive: true });
+
+    panel.addEventListener('touchcancel', () => {
+      monthSwipeTracking = false;
+    }, { passive: true });
   });
 }
 
@@ -1032,7 +1158,7 @@ function renderCalendar() {
   // Format Month Title
   currentViewTitle.textContent = `${year}년 ${month + 1}월`;
   if (mobileCurrentViewTitle) {
-    mobileCurrentViewTitle.innerHTML = `${year}. ${month + 1}. <i data-lucide="chevron-down" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle; margin-left: 2px;"></i>`;
+    mobileCurrentViewTitle.textContent = `${year}년 ${month + 1}월`;
   }
 
   const mobileTodayBtn = document.getElementById('mobile-today-btn');
@@ -1140,14 +1266,22 @@ function renderMobileMonth(year, month, startDayOfWeek, totalDays, requiredCellC
     button.appendChild(number);
 
     if (dayTodos.length) {
-      const dots = document.createElement('span');
-      dots.classList.add('mobile-month-dots');
-      [...new Set(dayTodos.slice(0, 3).map(todo => todo.color || '#2cc985'))].forEach(color => {
-        const dot = document.createElement('i');
-        dot.style.backgroundColor = color;
-        dots.appendChild(dot);
+      const events = document.createElement('span');
+      events.classList.add('mobile-month-events');
+      dayTodos.slice(0, 3).forEach(todo => {
+        const event = document.createElement('span');
+        event.classList.add('mobile-month-event');
+        event.style.backgroundColor = todo.color || '#2cc985';
+        event.textContent = todo.title;
+        events.appendChild(event);
       });
-      button.appendChild(dots);
+      if (dayTodos.length > 3) {
+        const more = document.createElement('span');
+        more.classList.add('mobile-month-more');
+        more.textContent = `+${dayTodos.length - 3}`;
+        events.appendChild(more);
+      }
+      button.appendChild(events);
     }
 
     button.addEventListener('click', () => {
@@ -1399,11 +1533,9 @@ function openDayAgendaModal(dateString) {
     } else {
       dayTodos.forEach(todo => {
         const item = document.createElement('div');
-        item.tabIndex = 0;
-        item.setAttribute('role', 'button');
         item.classList.add('day-agenda-item');
         if (todo.completed) item.classList.add('completed');
-        item.style.setProperty('--agenda-color', todo.color || '#6366f1');
+        item.style.setProperty('--agenda-color', todo.color || '#2cc985');
 
         const isAllDay = todo.allDay || (todo.startDate && todo.endDate && todo.startDate.substring(0, 10) < todo.endDate.substring(0, 10));
         const time = document.createElement('span');
@@ -1421,13 +1553,23 @@ function openDayAgendaModal(dateString) {
           details.appendChild(content);
         }
 
-        item.append(time, details);
-        const openTodo = () => {
+        const actions = document.createElement('span');
+        actions.classList.add('day-agenda-actions');
+        const editButton = document.createElement('button');
+        editButton.type = 'button';
+        editButton.className = 'btn-text day-agenda-edit';
+        editButton.textContent = '일정 보기';
+        editButton.addEventListener('click', () => {
           closeDayAgendaModal();
           openModal(todo);
-        };
-        item.addEventListener('click', openTodo);
-        item.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openTodo(); } });
+        });
+        actions.append(editButton);
+        item.append(time, details, actions);
+        item.addEventListener('click', (e) => {
+          if (e.target.closest('.day-agenda-actions')) return;
+          closeDayAgendaModal();
+          openModal(todo);
+        });
         dayAgendaList.appendChild(item);
       });
     }
@@ -1931,6 +2073,7 @@ function darkenColor(col, amt) {
 // KidsNote notice import flow
 function setupKidsNoteEventListeners() {
   btnImportKidsNote?.addEventListener('click', () => {
+    document.querySelector('.app-container')?.classList.remove('mobile-menu-open');
     resetKidsNoteModal();
     kidsNoteModal?.classList.add('open');
   });
@@ -2274,7 +2417,7 @@ async function saveKidsNoteSchedules() {
 
 // AI natural-language schedule flow
 function setupAiScheduleEventListeners() {
-  btnAiSchedule?.addEventListener('click', openAiScheduleModal);
+  btnAiSchedule?.addEventListener('click', openAiSchedule);
   closeAiScheduleModal?.addEventListener('click', closeAiSchedule);
   btnCancelAiSchedule?.addEventListener('click', () => {
     if (btnCancelAiSchedule.textContent === '다시 하기') {
@@ -2299,9 +2442,9 @@ function setupAiScheduleEventListeners() {
   });
 }
 
-function openAiScheduleModal() {
-  resetAiScheduleModal();
+function openAiSchedule() {
   aiScheduleModal.classList.add('open');
+  showAiScheduleInput();
   setTimeout(() => aiScheduleText.focus(), 50);
 }
 
@@ -2324,7 +2467,7 @@ function resetAiScheduleModal() {
   if (aiMicBtn) aiMicBtn.classList.remove('hidden');
 
   btnCancelAiSchedule.textContent = '닫기';
-
+  aiScheduleInputPanel.classList.remove('compact');
   aiScheduleInputPanel.classList.remove('hidden');
   aiScheduleLoading.classList.add('hidden');
   aiSchedulePreview.classList.add('hidden');
@@ -2337,6 +2480,7 @@ function resetAiScheduleModal() {
 }
 
 function showAiScheduleInput() {
+  aiScheduleInputPanel.classList.remove('compact');
   aiScheduleInputPanel.classList.remove('hidden');
   aiSchedulePreview.classList.add('hidden');
   aiScheduleLoading.classList.add('hidden');
@@ -2361,17 +2505,16 @@ async function analyzeAiScheduleText() {
     return;
   }
 
-  aiScheduleInputPanel.classList.add('hidden');
+  aiScheduleInputPanel.classList.remove('hidden');
   aiSchedulePreview.classList.add('hidden');
   aiScheduleLoading.classList.remove('hidden');
   btnAnalyzeAiSchedule.disabled = true;
 
   const aiScheduleDisplayTitle = document.getElementById('ai-schedule-display-title');
   const aiMicBtn = document.querySelector('.ai-mic-btn');
-  aiScheduleText.classList.add('hidden');
+  aiScheduleText.classList.remove('hidden');
   if (aiScheduleDisplayTitle) {
-    aiScheduleDisplayTitle.textContent = text;
-    aiScheduleDisplayTitle.classList.remove('hidden');
+    aiScheduleDisplayTitle.classList.add('hidden');
   }
   if (aiMicBtn) aiMicBtn.classList.add('hidden');
 
@@ -2391,6 +2534,7 @@ async function analyzeAiScheduleText() {
 
     aiScheduleLoading.classList.add('hidden');
     aiSchedulePreview.classList.remove('hidden');
+    aiScheduleInputPanel.classList.add('compact');
     btnAnalyzeAiSchedule.classList.add('hidden');
 
     if (result.clarification) {
@@ -2435,7 +2579,7 @@ function renderAiScheduleCandidates() {
   }
 
   // Change cancel button to "다시 하기" on mobile
-  if (window.innerWidth <= 768) {
+  if (window.innerWidth <= 768 || document.documentElement.dataset.frontend === 'mobile') {
     const btnCancelAiSchedule = document.getElementById('btn-cancel-ai-schedule');
     if (btnCancelAiSchedule) btnCancelAiSchedule.textContent = '다시 하기';
   }
@@ -2446,7 +2590,18 @@ function renderAiScheduleCandidates() {
     card.dataset.index = index;
 
     // Check if on mobile
-    if (window.innerWidth <= 768) {
+    if (window.innerWidth <= 768 || document.documentElement.dataset.frontend === 'mobile') {
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = true;
+      checkbox.classList.add('extracted-card-checkbox', 'ai-schedule-checkbox');
+      checkbox.setAttribute('aria-label', `${event.title} 선택`);
+      checkbox.addEventListener('change', () => {
+        card.classList.toggle('disabled', !checkbox.checked);
+        updateAiSelectedCount();
+      });
+      card.appendChild(checkbox);
+
       if (event.isEditing) {
         // Render Edit Form inside card
         const form = document.createElement('div');
@@ -2669,6 +2824,71 @@ function toDatetimeLocalString(dateStr) {
   return localDate.toISOString().slice(0, 16);
 }
 
+let mobileDatePickerState = null;
+
+function openMobileDatePicker(input, initialValue, onSelect) {
+  document.querySelector('.mobile-date-picker')?.remove();
+  const parsed = /^\d{4}-\d{2}-\d{2}$/.test(initialValue) ? new Date(`${initialValue}T00:00:00`) : new Date();
+  mobileDatePickerState = { input, onSelect, selected: new Date(parsed), view: new Date(parsed.getFullYear(), parsed.getMonth(), 1) };
+
+  const picker = document.createElement('div');
+  picker.className = 'mobile-date-picker';
+  picker.innerHTML = `
+    <button type="button" class="mobile-date-picker-backdrop" aria-label="날짜 선택 닫기"></button>
+    <section class="mobile-date-picker-sheet" role="dialog" aria-modal="true" aria-label="날짜 선택">
+      <div class="mobile-date-picker-handle"></div>
+      <header>
+        <button type="button" class="mobile-date-picker-nav prev" aria-label="이전 달">‹</button>
+        <strong class="mobile-date-picker-title"></strong>
+        <button type="button" class="mobile-date-picker-nav next" aria-label="다음 달">›</button>
+      </header>
+      <div class="mobile-date-picker-weekdays"><span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div>
+      <div class="mobile-date-picker-days"></div>
+      <footer><button type="button" class="mobile-date-picker-today">오늘</button><button type="button" class="mobile-date-picker-cancel">취소</button></footer>
+    </section>`;
+  document.body.appendChild(picker);
+
+  const close = () => { picker.remove(); mobileDatePickerState = null; };
+  picker.querySelector('.mobile-date-picker-backdrop').addEventListener('click', close);
+  picker.querySelector('.mobile-date-picker-cancel').addEventListener('click', close);
+  picker.querySelector('.prev').addEventListener('click', () => { mobileDatePickerState.view.setMonth(mobileDatePickerState.view.getMonth() - 1); renderMobileDatePicker(picker); });
+  picker.querySelector('.next').addEventListener('click', () => { mobileDatePickerState.view.setMonth(mobileDatePickerState.view.getMonth() + 1); renderMobileDatePicker(picker); });
+  picker.querySelector('.mobile-date-picker-today').addEventListener('click', () => selectMobileDatePickerDate(picker, new Date()));
+  renderMobileDatePicker(picker);
+}
+
+function selectMobileDatePickerDate(picker, date) {
+  const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  mobileDatePickerState.input.value = value;
+  mobileDatePickerState.onSelect(value);
+  picker.remove();
+  mobileDatePickerState = null;
+}
+
+function renderMobileDatePicker(picker) {
+  const { view, selected } = mobileDatePickerState;
+  const year = view.getFullYear();
+  const month = view.getMonth();
+  picker.querySelector('.mobile-date-picker-title').textContent = `${year}년 ${month + 1}월`;
+  const days = picker.querySelector('.mobile-date-picker-days');
+  days.innerHTML = '';
+  const firstDay = new Date(year, month, 1).getDay();
+  const lastDate = new Date(year, month + 1, 0).getDate();
+  for (let i = 0; i < firstDay; i += 1) days.appendChild(document.createElement('span'));
+  for (let day = 1; day <= lastDate; day += 1) {
+    const date = new Date(year, month, day);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = day;
+    if (date.toDateString() === selected.toDateString()) button.classList.add('selected');
+    if (date.toDateString() === new Date().toDateString()) button.classList.add('today');
+    if (date.getDay() === 0) button.classList.add('sunday');
+    if (date.getDay() === 6) button.classList.add('saturday');
+    button.addEventListener('click', () => selectMobileDatePickerDate(picker, date));
+    days.appendChild(button);
+  }
+}
+
 function createAiDateField(labelText, value, onChange, allDay = false, isEnd = false) {
   const wrapper = document.createElement('div');
   wrapper.classList.add('ai-schedule-date-field');
@@ -2677,9 +2897,17 @@ function createAiDateField(labelText, value, onChange, allDay = false, isEnd = f
   label.textContent = labelText;
 
   const input = document.createElement('input');
-  input.type = allDay ? 'date' : 'datetime-local';
+  input.type = allDay ? 'text' : 'datetime-local';
   input.value = allDay ? String(value).slice(0, 10) : formatIsoForInput(value);
-  input.addEventListener('change', event => {
+  if (allDay) {
+    input.readOnly = true;
+    input.inputMode = 'none';
+    input.classList.add('mobile-date-input');
+    input.setAttribute('aria-label', `${labelText} 날짜 선택`);
+    input.addEventListener('click', () => openMobileDatePicker(input, input.value, selected => {
+      onChange(`${selected}T${isEnd ? '23:59:59' : '00:00:00'}`);
+    }));
+  } else input.addEventListener('change', event => {
     const nextValue = allDay
       ? `${event.target.value}T${isEnd ? '23:59:59' : '00:00:00'}`
       : event.target.value;
@@ -2823,7 +3051,9 @@ function renderWeek() {
   for (let hour = 0; hour < 24; hour++) {
     const slot = document.createElement('div');
     slot.classList.add('week-time-axis-slot');
-    slot.textContent = `${String(hour).padStart(2, '0')}:00`;
+    if (hour === 8) slot.textContent = '8\n오전';
+    else if (hour === 12) slot.textContent = '12\n오후';
+    else slot.textContent = String(hour > 12 ? hour - 12 : (hour || 12));
     timeAxis.appendChild(slot);
   }
   weekGrid.appendChild(timeAxis);
@@ -2931,7 +3161,7 @@ function renderWeek() {
   // Auto scroll week grid to 8am or current hour
   requestAnimationFrame(() => {
     const scrollTargetHour = isTodayInWeek ? Math.max(0, Math.min(20, today.getHours() - 1)) : 8;
-    const hourSlotHeight = 48;
+    const hourSlotHeight = 64;
     weekGrid.scrollTop = scrollTargetHour * hourSlotHeight;
   });
 }

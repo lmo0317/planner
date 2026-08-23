@@ -3,25 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <script>
-    (() => {
-      if (location.protocol === 'file:') return;
-      const params = new URLSearchParams(location.search);
-      if (params.get('desktop') === '1') return;
-      const portraitScreen = screen.height > screen.width;
-      const compactViewport = Math.min(window.innerWidth, screen.width) <= 900;
-      if (portraitScreen || compactViewport) location.replace('/m');
-    })();
-  </script>
-  <title>NEO Planner - 스마트 일정 관리</title>
+  <title>NEO Planner - 모바일 일정</title>
   <!-- Google Fonts: Space Grotesk & Outfit -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
   <!-- Lucide Icons CDN -->
   <script src="vendor/lucide.min.js"></script>
-  <!-- Tailwind/Vanilla CSS -->
-  <link rel="stylesheet" href="style.css?v=20260823-google-per-event-v1">
+  <!-- Dedicated Mobile CSS -->
+  <link rel="stylesheet" href="mobile.css?v=20260823-google-per-event-v1">
 </head>
 <body class="light-theme">
   <div class="glow-bg">
@@ -77,7 +67,7 @@
           <label class="schedule-type-option">
             <input type="checkbox" value="google" checked>
             <span class="schedule-type-dot google"></span>
-            <span class="schedule-type-name" id="google-filter-label-desktop">구글 (이지 플래너)</span>
+            <span class="schedule-type-name" id="google-filter-label">구글 (이지 플래너)</span>
           </label>
         </section>
 
@@ -96,7 +86,11 @@
           </button>
           <button id="btn-google-calendar" class="btn btn-secondary" style="width: 100%; margin-top: 14px;">
             <i data-lucide="calendar-days"></i>
-            <span>Google Calendar</span>
+            <span class="google-calendar-menu-label">Google Calendar</span>
+            <span id="google-calendar-menu-status" class="google-calendar-menu-status is-checking" role="status" aria-live="polite">
+              <span class="google-calendar-menu-status-dot" aria-hidden="true"></span>
+              <span class="google-calendar-menu-status-text">확인 중</span>
+            </span>
           </button>
         </div>
       </nav>
@@ -120,7 +114,7 @@
         <input type="search" id="mobile-search-input" placeholder="일정 검색..." aria-label="일정 검색어">
         <button type="button" id="mobile-search-close" aria-label="검색 닫기"><i data-lucide="x"></i></button>
       </div>
-      <header class="main-header">
+      <header class="main-header desktop-only">
         <div class="header-left">
           <h2 id="current-view-title">2026년 7월</h2>
           <div class="nav-buttons">
@@ -150,16 +144,6 @@
             <span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span>
           </div>
           <div id="mobile-month-grid" class="mobile-month-grid" role="grid" aria-label="월간 날짜 그리드"></div>
-          <section class="mobile-day-agenda" aria-labelledby="mobile-selected-day-title">
-            <header class="mobile-day-agenda-header">
-              <div>
-                <span id="mobile-selected-date-label" class="mobile-selected-date-label"></span>
-                <h3 id="mobile-selected-day-title">오늘 일정</h3>
-              </div>
-              <span id="mobile-selected-day-count" class="mobile-selected-day-count">0개</span>
-            </header>
-            <div id="mobile-day-agenda-list" class="mobile-day-agenda-list"></div>
-          </section>
         </section>
         <!-- Calendar Header (Days of week) -->
         <div class="calendar-days">
@@ -356,7 +340,7 @@
         </div>
         <div class="form-group kidsnote-start-date-group">
           <label for="kidsnote-start-date">가져오기 시작일</label>
-          <input id="kidsnote-start-date" type="date" required>
+          <input id="kidsnote-start-date" type="text" class="mobile-date-input" inputmode="none" readonly required aria-label="가져오기 시작일 선택">
           <p class="kidsnote-start-date-help">선택한 날짜보다 이전 일정은 후보에 표시되거나 등록되지 않습니다.</p>
         </div>
       </div>
@@ -485,6 +469,6 @@
   </div>
 
   <script src="offline-storage.js"></script>
-  <script src="app.js?v=20260823-google-per-event-v1"></script>
+  <script src="mobile-app.js?v=20260823-google-per-event-v1"></script>
 </body>
 </html>

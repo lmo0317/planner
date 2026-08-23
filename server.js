@@ -13,21 +13,27 @@ const db = require('./db');
 const execFileAsync = promisify(execFile);
 const app = express();
 const PORT = process.env.PORT || 3000;
-const LLM_BASE_URL = (process.env.LLM_BASE_URL || 'http://localhost:8081').replace(/\/$/, '');
+const LLM_BASE_URL = (process.env.LLM_BASE_URL || 'http://minohlee.mooo.com:8081').replace(/\/$/, '');
 const LLM_MODEL = process.env.LLM_MODEL || 'gemma-4-e4b-it-q4km';
 const LLM_TIMEOUT_MS = Math.max(5000, Number(process.env.LLM_TIMEOUT_MS) || 60000);
 const KIDSNOTE_SESSION_SECRET = process.env.KIDSNOTE_SESSION_SECRET || '';
 const KIDSNOTE_SESSION_COOKIE = 'planner_kidsnote_session';
 const KIDSNOTE_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const KIDSNOTE_SESSION_FILE = path.join(__dirname, 'data', 'kidsnote-sessions.json');
+const TIMETREE_SESSION_COOKIE = 'planner_timetree_session';
+const TIMETREE_SESSION_FILE = path.join(__dirname, 'data', 'timetree-session.json');
+const TIMETREE_CALENDAR_ID = process.env.TIMETREE_CALENDAR_ID || 'UvLp28KQRT2D';
+const TIMETREE_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const CHROMIUM_EXECUTABLE = process.env.CHROMIUM_EXECUTABLE || '/snap/bin/chromium';
 const GOOGLE_CALENDAR_TOKEN_FILE = path.join(__dirname, 'data', 'google-calendar-token.json');
 const GOOGLE_CALENDAR_STATE_COOKIE = 'planner_google_calendar_state';
+const GOOGLE_CALENDAR_RETURN_COOKIE = 'planner_google_calendar_return';
 const GOOGLE_CALENDAR_TIME_ZONE = 'Asia/Seoul';
 const GOOGLE_CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar';
-const GOOGLE_CALENDAR_NAME = '가족 플래너';
+const GOOGLE_CALENDAR_FALLBACK_NAME = '기본 캘린더';
 const kidsNoteAnalysisJobs = new Map();
 let googleCalendarSyncQueue = Promise.resolve();
+let timeTreeSyncQueue = Promise.resolve();
 
 let koreanHolidayModulePromise;
 
@@ -92,7 +98,14 @@ function parseRequestCookies(req) {
 }
 
 function clearGoogleCalendarStateCookie(res) {
-  res.setHeader('Set-Cookie', `${GOOGLE_CALENDAR_STATE_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
+  res.setHeader('Set-Cookie', [
+    `${GOOGLE_CALENDAR_STATE_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`,
+    `${GOOGLE_CALENDAR_RETURN_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`
+  ]);
+}
+
+function getGoogleOAuthScopes() {
+  return ['openid', 'email', 'profile', GOOGLE_CALENDAR_SCOPE];
 }
 
 async function getGoogleCalendarAccessToken() {
@@ -139,29 +152,25 @@ async function googleCalendarRequest(url, options = {}) {
   return result;
 }
 
+async function fetchGoogleUser(accessToken) {
+  const response = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+  const profile = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(profile.error_description || 'Google 계정 정보를 가져오지 못했습니다.');
+  return { id: profile.sub, email: profile.email || '', name: profile.name || '', picture: profile.picture || '' };
+}
+
 function hasGoogleCalendarSharingScope(store) {
   return String(store?.scope || '').split(/\s+/).includes(GOOGLE_CALENDAR_SCOPE);
 }
 
-async function ensurePlannerGoogleCalendar(store) {
-  if (store.calendarId) return store.calendarId;
-  if (!hasGoogleCalendarSharingScope(store)) {
-    const error = new Error('캘린더 공유 권한이 필요합니다. Google 계정을 다시 연결해 주세요.');
-    error.status = 403;
+function requireSelectedGoogleCalendar(store) {
+  if (!store?.calendarId) {
+    const error = new Error('먼저 동기화할 Google 캘린더를 선택해 주세요.');
+    error.status = 400;
     throw error;
   }
-  const calendar = await googleCalendarRequest('https://www.googleapis.com/calendar/v3/calendars', {
-    method: 'POST',
-    body: JSON.stringify({
-      summary: GOOGLE_CALENDAR_NAME,
-      description: '가족 플래너에서 동기화하고 공유하는 전용 캘린더입니다.',
-      timeZone: GOOGLE_CALENDAR_TIME_ZONE
-    })
-  });
-  store.calendarId = calendar.id;
-  store.calendarName = calendar.summary || GOOGLE_CALENDAR_NAME;
-  store.eventIds = {};
-  writeGoogleCalendarTokenStore(store);
   return store.calendarId;
 }
 
@@ -169,12 +178,12 @@ function toGoogleCalendarEvent(todo) {
   const event = {
     summary: todo.title,
     description: todo.content || '',
-    extendedProperties: { private: { plannerTodoId: todo.id } }
+    extendedProperties: { private: { plannerTodoId: String(todo.id), plannerSource: 'neo-planner' } }
   };
   if (todo.allDay || todo.startDate.slice(0, 10) !== todo.endDate.slice(0, 10)) {
     const startDate = todo.startDate.slice(0, 10);
-    const end = new Date(`${todo.endDate.slice(0, 10)}T00:00:00`);
-    end.setDate(end.getDate() + 1);
+    const end = new Date(`${todo.endDate.slice(0, 10)}T00:00:00Z`);
+    end.setUTCDate(end.getUTCDate() + 1);
     event.start = { date: startDate };
     event.end = { date: end.toISOString().slice(0, 10) };
   } else {
@@ -191,65 +200,105 @@ function normalizeGoogleCalendarDateTime(value) {
   return normalized;
 }
 
-async function syncPlannerGoogleCalendar() {
+async function syncTodoToGoogleCalendar(todoId) {
+  const todo = await db.getTodoById(String(todoId));
+  if (!todo) {
+    const error = new Error('동기화할 일정을 찾지 못했습니다.');
+    error.status = 404;
+    throw error;
+  }
   const { store } = await getGoogleCalendarAccessToken();
-  const calendarId = await ensurePlannerGoogleCalendar(store);
-  const todos = await db.getAllTodos();
+  const calendarId = requireSelectedGoogleCalendar(store);
   store.eventIds = store.eventIds || {};
-  const currentTodoIds = new Set(todos.map(todo => String(todo.id)));
-  let created = 0;
-  let updated = 0;
-  let deleted = 0;
+  const rememberedId = store.eventIds[String(todo.id)];
+  const event = toGoogleCalendarEvent(todo);
+  let googleEventId = rememberedId || '';
+  let action = 'created';
 
-  for (const todo of todos) {
-    const todoId = String(todo.id);
-    const event = toGoogleCalendarEvent(todo);
-    const existingId = store.eventIds[todoId];
-    if (existingId) {
-      try {
-        await googleCalendarRequest(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(existingId)}`, {
-          method: 'PUT',
-          body: JSON.stringify(event)
-        });
-        updated++;
-        continue;
-      } catch (error) {
-        if (error.status !== 404) throw error;
-      }
-    }
-    const createdEvent = await googleCalendarRequest(
-      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
-      { method: 'POST', body: JSON.stringify(event) }
-    );
-    store.eventIds[todoId] = createdEvent.id;
-    writeGoogleCalendarTokenStore(store);
-    created++;
+  if (!googleEventId) {
+    const params = new URLSearchParams({
+      maxResults: '10',
+      singleEvents: 'false',
+      privateExtendedProperty: `plannerTodoId=${String(todo.id)}`
+    });
+    const matches = await googleCalendarRequest(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?${params}`);
+    googleEventId = (matches.items || []).find(item => item.status !== 'cancelled')?.id || '';
   }
 
-  for (const [todoId, eventId] of Object.entries(store.eventIds)) {
-    if (currentTodoIds.has(String(todoId))) continue;
+  if (googleEventId) {
     try {
-      await googleCalendarRequest(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`, {
-        method: 'DELETE'
+      await googleCalendarRequest(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(googleEventId)}`, {
+        method: 'PUT', body: JSON.stringify(event)
       });
+      action = 'updated';
     } catch (error) {
       if (error.status !== 404) throw error;
+      googleEventId = '';
     }
-    delete store.eventIds[todoId];
-    deleted++;
+  }
+  if (!googleEventId) {
+    const created = await googleCalendarRequest(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`, {
+      method: 'POST', body: JSON.stringify(event)
+    });
+    googleEventId = created.id;
+    action = 'created';
   }
 
+  store.eventIds[String(todo.id)] = googleEventId;
+  store.lastSyncedAt = new Date().toISOString();
   writeGoogleCalendarTokenStore(store);
-  return { created, updated, deleted, total: todos.length };
+  return { todoId: String(todo.id), googleEventId, action, calendarId, calendarName: store.calendarName };
 }
 
-function queueGoogleCalendarSync() {
-  const store = readGoogleCalendarTokenStore();
-  if (!store?.refreshToken || !hasGoogleCalendarSharingScope(store)) return;
-  googleCalendarSyncQueue = googleCalendarSyncQueue
-    .catch(() => undefined)
-    .then(() => syncPlannerGoogleCalendar())
-    .catch(error => console.error('Automatic Google Calendar sync failed:', error.message));
+function googleEventToCalendarTodo(event, calendarName, calendarColor) {
+  const start = event.start || {};
+  const end = event.end || {};
+  const allDay = Boolean(start.date && !start.dateTime);
+  let startDate = start.dateTime || (start.date ? `${start.date}T00:00:00` : '');
+  let endDate = end.dateTime || startDate;
+  if (allDay) {
+    const exclusiveEnd = new Date(`${end.date || start.date}T00:00:00Z`);
+    exclusiveEnd.setUTCDate(exclusiveEnd.getUTCDate() - 1);
+    endDate = `${exclusiveEnd.toISOString().slice(0, 10)}T23:59:59`;
+  }
+  if (!startDate) return null;
+  return {
+    id: `google:${event.id}`,
+    googleEventId: event.id,
+    title: event.summary || '(제목 없음)',
+    content: event.description || '',
+    startDate,
+    endDate: endDate || startDate,
+    allDay,
+    completed: false,
+    color: calendarColor || '#4285f4',
+    scheduleType: 'google',
+    isGoogleCalendar: true,
+    readOnly: true,
+    googleCalendarName: calendarName || GOOGLE_CALENDAR_FALLBACK_NAME,
+    plannerTodoId: event.extendedProperties?.private?.plannerTodoId || null,
+    htmlLink: event.htmlLink || ''
+  };
+}
+
+async function listSelectedGoogleCalendarTodos() {
+  const { store } = await getGoogleCalendarAccessToken();
+  const calendarId = requireSelectedGoogleCalendar(store);
+  const now = new Date();
+  const timeMin = new Date(now.getFullYear() - 2, 0, 1).toISOString();
+  const timeMax = new Date(now.getFullYear() + 4, 0, 1).toISOString();
+  const events = [];
+  let pageToken = '';
+  do {
+    const params = new URLSearchParams({ maxResults: '2500', singleEvents: 'true', orderBy: 'startTime', timeMin, timeMax });
+    if (pageToken) params.set('pageToken', pageToken);
+    const result = await googleCalendarRequest(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?${params}`);
+    events.push(...(result.items || []));
+    pageToken = result.nextPageToken || '';
+  } while (pageToken);
+  return events.filter(event => event.status !== 'cancelled')
+    .map(event => googleEventToCalendarTodo(event, store.calendarName, store.calendarColor))
+    .filter(Boolean);
 }
 
 function getKoreanHolidayModule() {
@@ -264,6 +313,25 @@ app.use(cors());
 app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
+
+const mobileUserAgentPattern = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i;
+
+app.get(['/m', '/mobile'], (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.sendFile(path.join(__dirname, 'public', 'mobile.html'));
+});
+
+app.get('/kids_note_gallary', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.sendFile(path.join(__dirname, 'public', 'kids-note-gallery.html'));
+});
+
+app.get('/', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const forceDesktop = req.query.desktop === '1';
+  const useMobileFrontend = !forceDesktop && mobileUserAgentPattern.test(req.get('user-agent') || '');
+  res.sendFile(path.join(__dirname, 'public', useMobileFrontend ? 'mobile.html' : 'index.html'));
+});
 
 // Serve static files. Keep the entry HTML fresh so a normal reload always
 // picks up the latest cache-busted frontend assets after a deployment.
@@ -333,7 +401,6 @@ app.post('/api/todos', async (req, res) => {
     }
     const newTodo = await db.createTodo(req.body);
     res.status(201).json(newTodo);
-    queueGoogleCalendarSync();
   } catch (err) {
     res.status(500).json({ error: 'Failed to create task', details: err.message });
   }
@@ -346,7 +413,6 @@ app.put('/api/todos/:id', async (req, res) => {
       return res.status(404).json({ error: 'Task not found' });
     }
     res.json(updatedTodo);
-    queueGoogleCalendarSync();
   } catch (err) {
     res.status(500).json({ error: 'Failed to update task', details: err.message });
   }
@@ -359,139 +425,8 @@ app.delete('/api/todos/:id', async (req, res) => {
       return res.status(404).json({ error: 'Task not found' });
     }
     res.json({ message: 'Task deleted successfully' });
-    queueGoogleCalendarSync();
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete task', details: err.message });
-  }
-});
-
-app.get('/api/google-calendar/status', (req, res) => {
-  const store = readGoogleCalendarTokenStore();
-  res.json({
-    configured: isGoogleCalendarConfigured(),
-    connected: Boolean(store?.refreshToken),
-    sharingReady: Boolean(store?.refreshToken && hasGoogleCalendarSharingScope(store)),
-    calendarCreated: Boolean(store?.calendarId),
-    calendarName: store?.calendarName || GOOGLE_CALENDAR_NAME
-  });
-});
-
-app.get('/api/google-calendar/connect', (req, res) => {
-  if (!isGoogleCalendarConfigured()) {
-    return res.status(503).send('Google Calendar 설정이 아직 완료되지 않았습니다. 서버의 .env 파일을 확인하세요.');
-  }
-  const config = getGoogleCalendarConfig();
-  const state = crypto.randomBytes(32).toString('base64url');
-  res.setHeader('Set-Cookie', `${GOOGLE_CALENDAR_STATE_COOKIE}=${state}; HttpOnly; SameSite=Lax; Path=/; Max-Age=600`);
-  const authorizeUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
-  authorizeUrl.search = new URLSearchParams({
-    client_id: config.clientId,
-    redirect_uri: config.redirectUri,
-    response_type: 'code',
-    scope: GOOGLE_CALENDAR_SCOPE,
-    access_type: 'offline',
-    prompt: 'consent',
-    state
-  }).toString();
-  res.redirect(authorizeUrl.toString());
-});
-
-app.get('/api/google-calendar/callback', async (req, res) => {
-  const returnUrl = '/?googleCalendar=error';
-  try {
-    const state = parseRequestCookies(req)[GOOGLE_CALENDAR_STATE_COOKIE];
-    clearGoogleCalendarStateCookie(res);
-    const returnedState = String(req.query.state || '');
-    if (!req.query.code || !state || state.length !== returnedState.length || !crypto.timingSafeEqual(Buffer.from(state), Buffer.from(returnedState))) {
-      return res.redirect(returnUrl);
-    }
-    const config = getGoogleCalendarConfig();
-    const response = await fetch('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        code: String(req.query.code),
-        client_id: config.clientId,
-        client_secret: config.clientSecret,
-        redirect_uri: config.redirectUri,
-        grant_type: 'authorization_code'
-      })
-    });
-    const token = await response.json();
-    if (!response.ok || !token.refresh_token) throw new Error(token.error_description || 'Google authorization failed.');
-    writeGoogleCalendarTokenStore({
-      refreshToken: token.refresh_token,
-      accessToken: token.access_token,
-      expiresAt: Date.now() + Number(token.expires_in || 3600) * 1000,
-      scope: token.scope || GOOGLE_CALENDAR_SCOPE,
-      eventIds: {}
-    });
-    try {
-      await syncPlannerGoogleCalendar();
-    } catch (syncError) {
-      console.error('Initial Google Calendar sync failed:', syncError.message);
-    }
-    res.redirect('/?googleCalendar=connected');
-  } catch (error) {
-    console.error('Google Calendar callback failed:', error.message);
-    res.redirect(returnUrl);
-  }
-});
-
-app.post('/api/google-calendar/sync', async (req, res) => {
-  try {
-    const result = await syncPlannerGoogleCalendar();
-    res.json(result);
-  } catch (error) {
-    console.error('Google Calendar sync failed:', error.message);
-    res.status(500).json({ error: error.message || 'Google Calendar sync failed.' });
-  }
-});
-
-app.post('/api/google-calendar/share', async (req, res) => {
-  try {
-    const email = String(req.body?.email || '').trim().toLowerCase();
-    const role = req.body?.role === 'writer' ? 'writer' : 'reader';
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return res.status(400).json({ error: '공유할 Google 계정 이메일을 정확히 입력해 주세요.' });
-    }
-    const { store } = await getGoogleCalendarAccessToken();
-    const calendarId = await ensurePlannerGoogleCalendar(store);
-    const aclBody = JSON.stringify({
-      role,
-      scope: { type: 'user', value: email }
-    });
-    let rule;
-    try {
-      rule = await googleCalendarRequest(
-        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/acl?sendNotifications=true`,
-        { method: 'POST', body: aclBody }
-      );
-    } catch (error) {
-      if (error.status !== 409) throw error;
-      rule = await googleCalendarRequest(
-        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/acl/${encodeURIComponent(`user:${email}`)}?sendNotifications=true`,
-        { method: 'PUT', body: aclBody }
-      );
-    }
-    res.json({
-      shared: true,
-      email,
-      role: rule.role || role,
-      calendarName: store.calendarName || GOOGLE_CALENDAR_NAME
-    });
-  } catch (error) {
-    console.error('Google Calendar share failed:', error.message);
-    res.status(error.status || 500).json({ error: error.message || 'Google Calendar sharing failed.' });
-  }
-});
-
-app.post('/api/google-calendar/disconnect', (req, res) => {
-  try {
-    if (fs.existsSync(GOOGLE_CALENDAR_TOKEN_FILE)) fs.unlinkSync(GOOGLE_CALENDAR_TOKEN_FILE);
-    res.json({ disconnected: true });
-  } catch (error) {
-    res.status(500).json({ error: 'Google Calendar connection could not be removed.' });
   }
 });
 
@@ -696,8 +631,17 @@ function normalizeCandidateText(value) {
 
 function normalizeKidsNoteEventIdentity(value) {
   return normalizeCandidateText(value)
+    // Remove explicit calendar dates so a period notice and a boundary-day
+    // reminder share the same identity (e.g. 여름방학 + 7월27일~7월31일).
+    .replace(/\d{1,2}월\d{1,2}일/g, '')
     // These words describe the notice, not the actual calendar event.
     .replace(/(일정|기간|안내|공지|알림|운영|실시|예정|관련|안내문|공문|입니다|이에요|입니다)/g, '');
+}
+
+function getKidsNoteDateRange(event) {
+  const start = Date.parse(`${String(event.startDate || '').slice(0, 10)}T00:00:00Z`);
+  const end = Date.parse(`${String(event.endDate || '').slice(0, 10)}T00:00:00Z`);
+  return { start, end, days: Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, Math.round((end - start) / 86400000)) : 0 };
 }
 
 function getKidsNoteEventType(value) {
@@ -727,17 +671,34 @@ function diceSimilarity(left, right) {
 }
 
 function areSameKidsNoteCandidate(left, right) {
+  const leftRange = getKidsNoteDateRange(left);
+  const rightRange = getKidsNoteDateRange(right);
   const sameDateRange = left.startDate.slice(0, 10) === right.startDate.slice(0, 10) &&
     left.endDate.slice(0, 10) === right.endDate.slice(0, 10);
-  if (!sameDateRange) return false;
 
   const leftTitle = normalizeCandidateText(left.title);
   const rightTitle = normalizeCandidateText(right.title);
   if (!leftTitle || !rightTitle) return false;
-  if (leftTitle === rightTitle) return true;
 
   const leftIdentity = normalizeKidsNoteEventIdentity(left.title);
   const rightIdentity = normalizeKidsNoteEventIdentity(right.title);
+  const containedRange = (leftRange.days > 0 || rightRange.days > 0) &&
+    ((leftRange.start <= rightRange.start && leftRange.end >= rightRange.end) ||
+      (rightRange.start <= leftRange.start && rightRange.end >= leftRange.end));
+
+  // A notice may repeat a multi-day event on its first or last day. Treat it
+  // as one candidate only when the normalized event identity is strong and
+  // the shorter date range is fully contained by the longer one.
+  if (!sameDateRange) {
+    if (!containedRange || !leftIdentity || !rightIdentity) return false;
+    if (leftIdentity === rightIdentity) return true;
+    const identityShorter = leftIdentity.length <= rightIdentity.length ? leftIdentity : rightIdentity;
+    const identityLonger = identityShorter === leftIdentity ? rightIdentity : leftIdentity;
+    return identityShorter.length >= 3 && identityLonger.includes(identityShorter) &&
+      diceSimilarity(leftIdentity, rightIdentity) >= 0.58;
+  }
+
+  if (leftTitle === rightTitle) return true;
   if (leftIdentity && rightIdentity && leftIdentity === rightIdentity) return true;
 
   // A shared event type on the exact same period is a duplicate even when one
@@ -774,8 +735,9 @@ function deduplicateKidsNoteEvents(events) {
       continue;
     }
     const existing = unique[duplicateIndex];
-    const existingScore = existing.confidence * 1000 + existing.content.length + existing.evidence.length;
-    const eventScore = event.confidence * 1000 + event.content.length + event.evidence.length;
+    // Prefer the complete multi-day period over a boundary-day reminder.
+    const existingScore = getKidsNoteDateRange(existing).days * 5000 + existing.confidence * 1000 + existing.content.length + existing.evidence.length;
+    const eventScore = getKidsNoteDateRange(event).days * 5000 + event.confidence * 1000 + event.content.length + event.evidence.length;
     if (eventScore > existingScore) unique[duplicateIndex] = event;
   }
   return unique.sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
@@ -1479,6 +1441,533 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000).unref();
 
+function readTimeTreeStore() {
+  try { return JSON.parse(fs.readFileSync(TIMETREE_SESSION_FILE, 'utf8')); }
+  catch (error) { return { sessions: {}, syncedTodos: {} }; }
+}
+
+function writeTimeTreeStore(store) {
+  fs.mkdirSync(path.dirname(TIMETREE_SESSION_FILE), { recursive: true });
+  const temporaryPath = `${TIMETREE_SESSION_FILE}.tmp`;
+  fs.writeFileSync(temporaryPath, JSON.stringify(store, null, 2), { encoding: 'utf8', mode: 0o600 });
+  fs.renameSync(temporaryPath, TIMETREE_SESSION_FILE);
+}
+
+function getTimeTreeSession(req) {
+  const token = parseRequestCookies(req)[TIMETREE_SESSION_COOKIE];
+  const store = readTimeTreeStore();
+  const saved = store.sessions?.[token];
+  if (!saved || saved.expiresAt <= Date.now()) return null;
+  try { return { token, cookies: JSON.parse(decryptKidsNoteCookie(saved.encryptedCookies)), expiresAt: saved.expiresAt }; }
+  catch { return null; }
+}
+
+async function launchTimeTreeBrowser() {
+  const puppeteer = require('puppeteer-core');
+  return puppeteer.launch({ executablePath: CHROMIUM_EXECUTABLE, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+}
+
+async function loginToTimeTree(email, password) {
+  const browser = await launchTimeTreeBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.goto('https://timetreeapp.com/signin', { waitUntil: 'networkidle2', timeout: 45000 });
+    const emailInput = await page.$('input[type="email"], input[autocomplete="username"], input[name="email"]');
+    const passwordInput = await page.$('input[type="password"], input[autocomplete="current-password"], input[name="password"]');
+    if (!emailInput || !passwordInput) throw new Error('타임트리 로그인 입력란을 찾지 못했습니다.');
+    await emailInput.click({ clickCount: 3 });
+    await emailInput.type(email);
+    await passwordInput.click({ clickCount: 3 });
+    await passwordInput.type(password);
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 45000 }).catch(() => null),
+      page.click('button[type="submit"]')
+    ]);
+    if (/\/signin(?:\?|$)/.test(page.url())) throw new Error('타임트리 로그인에 실패했습니다. 이메일과 비밀번호를 확인해 주세요.');
+    return page.cookies('https://timetreeapp.com');
+  } finally { await browser.close(); }
+}
+
+async function setTimeTreeAllDay(page, allDay) {
+  const knownControl = await page.$('[data-test-id="allday-checkbox"]');
+  if (knownControl) {
+    const checked = await knownControl.evaluate(el => el.getAttribute('aria-checked') === 'true' || el.checked === true);
+    if (checked !== allDay) {
+      const nestedCheckbox = await knownControl.$('input[type="checkbox"]');
+      if (nestedCheckbox) await nestedCheckbox.click();
+      else await knownControl.click();
+      await page.waitForFunction(expected => {
+        const control = document.querySelector('[data-test-id="allday-checkbox"]');
+        return control && (control.getAttribute('aria-checked') === String(expected));
+      }, { timeout: 5000 }, allDay).catch(() => null);
+    }
+  }
+  const controls = await page.$$('input[type="checkbox"], [role="switch"], button[aria-checked]');
+  const candidates = await Promise.all(controls.map(async control => ({
+    control,
+    data: await control.evaluate(el => {
+      const labelledBy = el.getAttribute('aria-labelledby');
+      const labelledText = labelledBy
+        ? labelledBy.split(/\s+/).map(id => document.getElementById(id)?.textContent || '').join(' ')
+        : '';
+      const nearby = el.closest('label, [role="switch"], [class*="switch"], [class*="checkbox"]') || el.parentElement;
+      return {
+        checked: el.checked === true || el.getAttribute('aria-checked') === 'true',
+        label: [
+          el.name,
+          el.id,
+          el.getAttribute('aria-label'),
+          labelledText,
+          nearby?.textContent
+        ].filter(Boolean).join(' ').trim()
+      };
+    })
+  })));
+  const allDayControl = candidates
+    .map(entry => ({ ...entry, score: /all.?day|종일|終日/i.test(entry.data.label) ? 100 : 0 }))
+    .sort((left, right) => right.score - left.score)[0];
+
+  if (!knownControl && allDayControl?.score > 0 && allDayControl.data.checked !== allDay) {
+    await allDayControl.control.click();
+  }
+
+  if (!allDay) {
+    await page.waitForFunction(
+      () => Boolean(document.querySelector('input[name="dateTime.startTime"], [data-test-id="start-time-picker"]')) &&
+        Boolean(document.querySelector('input[name="dateTime.endTime"], [data-test-id="end-time-picker"]')),
+      { timeout: 10000 }
+    ).catch(() => null);
+    const hasTimeInputs = await page.evaluate(() =>
+      Boolean(document.querySelector('input[name="dateTime.startTime"], [data-test-id="start-time-picker"]')) &&
+      Boolean(document.querySelector('input[name="dateTime.endTime"], [data-test-id="end-time-picker"]'))
+    );
+    if (!hasTimeInputs) {
+      throw new Error('타임트리의 종일 설정을 해제하거나 시간 입력란을 찾지 못했습니다.');
+    }
+  }
+}
+
+async function setTimeTreeInputValue(entry, value, valueKind = 'plain') {
+  if (!entry) return;
+  const formattedValue = await entry.input.evaluate((el, { rawValue, kind }) => {
+    let next = rawValue;
+    if (kind === 'date') {
+      const [year, month, day] = rawValue.split('-').map(Number);
+      next = new Intl.DateTimeFormat(navigator.language, {
+        weekday: 'short', year: 'numeric', month: 'short', day: 'numeric'
+      }).format(new Date(year, month - 1, day));
+    } else if (kind === 'time') {
+      const [hour, minute] = rawValue.split(':').map(Number);
+      next = new Intl.DateTimeFormat(navigator.language, {
+        hour: 'numeric', minute: '2-digit'
+      }).format(new Date(2000, 0, 1, hour, minute));
+    }
+    if (kind === 'time' && el.type === 'text') return next;
+    const prototype = el instanceof HTMLInputElement
+      ? HTMLInputElement.prototype
+      : el instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype
+        : HTMLElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+    if (setter) setter.call(el, next);
+    else el.value = next;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    el.dispatchEvent(new Event('blur', { bubbles: true }));
+  }, { rawValue: value, kind: valueKind });
+  if (valueKind === 'time' && entry.data?.type === 'text') {
+    await entry.input.click({ clickCount: 3 });
+    await entry.input.press('Backspace');
+    await entry.input.type(formattedValue);
+    await entry.input.press('Enter').catch(() => {});
+    await entry.input.press('Tab').catch(() => {});
+  }
+}
+
+function getTimeTreeSeoulParts(value) {
+  const raw = String(value || '');
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) {
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+    }).formatToParts(parsed).filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
+    return { date: `${parts.year}-${parts.month}-${parts.day}`, time: `${parts.hour}:${parts.minute}` };
+  }
+  return { date: raw.slice(0, 10), time: raw.slice(11, 16) };
+}
+
+async function syncTodoToTimeTree(todo, cookies) {
+  const browser = await launchTimeTreeBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.setCookie(...cookies);
+    const startParts = getTimeTreeSeoulParts(todo.startDate);
+    const endParts = getTimeTreeSeoulParts(todo.endDate);
+    const date = startParts.date;
+    const url = `https://timetreeapp.com/calendars/${encodeURIComponent(TIMETREE_CALENDAR_ID)}/events/new?date=${date}&referer=menu`;
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    if (/\/signin(?:\?|$)/.test(page.url())) throw new Error('타임트리 로그인이 만료되었습니다. 다시 연결해 주세요.');
+    try {
+      await page.waitForFunction(
+      () => Boolean(document.querySelector('input, textarea, [contenteditable="true"], [role="textbox"]')),
+        { timeout: 45000 }
+      );
+    } catch (error) {
+      const pageTitle = await page.title().catch(() => '');
+      throw new Error(`타임트리 일정 입력 화면을 불러오지 못했습니다. (${page.url()} ${pageTitle})`);
+    }
+
+    const fields = await page.$$('input, textarea, [contenteditable="true"], [role="textbox"]');
+    const metadata = await Promise.all(fields.map(async input => ({ input, data: await input.evaluate(el => ({
+      type: el.type || el.tagName.toLowerCase(),
+      role: el.getAttribute('role') || '',
+      name: el.name || '',
+      id: el.id || '',
+      className: typeof el.className === 'string' ? el.className : '',
+      placeholder: el.placeholder || '',
+      ariaLabel: el.getAttribute('aria-label') || ''
+    })) })));
+    const titleField = metadata
+      .filter(({ data }) => !['date', 'time', 'hidden', 'checkbox', 'radio'].includes(data.type))
+      .map(entry => {
+        const label = `${entry.data.name} ${entry.data.id} ${entry.data.className} ${entry.data.placeholder} ${entry.data.ariaLabel}`.toLowerCase();
+        let score = 0;
+      if (/title|event.?name|event.?title|제목|일정명/.test(label)) score += 100;
+      if (entry.data.role === 'textbox' && !/date|time|location|url|내용|설명|메모/i.test(label)) score += 80;
+        if (/content|description|memo|note|내용|설명|메모|备注/.test(label)) score -= 100;
+        if (/required/.test(label)) score += 5;
+        return { ...entry, score };
+      })
+      .filter(entry => entry.score >= 0)
+      .sort((a, b) => b.score - a.score)[0];
+    if (!titleField) throw new Error('타임트리 일정 제목 입력란을 찾지 못했습니다.');
+    await titleField.input.click({ clickCount: 3 });
+    await titleField.input.type(todo.title);
+
+    if (todo.content) {
+      const contentFields = await page.$$('textarea, input[type="text"], [contenteditable="true"], [role="textbox"]');
+      const contentMetadata = await Promise.all(contentFields.map(async input => ({ input, data: await input.evaluate(el => ({
+        tag: el.tagName.toLowerCase(),
+        name: el.getAttribute('name') || '',
+        id: el.id || '',
+        className: typeof el.className === 'string' ? el.className : '',
+        placeholder: el.getAttribute('placeholder') || '',
+        ariaLabel: el.getAttribute('aria-label') || '',
+        contentEditable: el.getAttribute('contenteditable') || ''
+      })) })));
+      const contentField = contentMetadata
+        .map(entry => {
+          const label = `${entry.data.name} ${entry.data.id} ${entry.data.className} ${entry.data.placeholder} ${entry.data.ariaLabel}`.toLowerCase();
+          let score = 0;
+          if (entry.data.tag === 'textarea' || entry.data.contentEditable === 'true') score += 20;
+          if (/content|description|memo|note|notes|내용|설명|메모|비고/.test(label)) score += 100;
+          if (/title|event.?name|제목/.test(label)) score -= 100;
+          return { ...entry, score };
+        })
+        .filter(entry => entry.score > 0)
+        .sort((a, b) => b.score - a.score)[0];
+      if (contentField) {
+        await contentField.input.click({ clickCount: 3 });
+        await contentField.input.type(todo.content);
+      }
+    }
+    await setTimeTreeAllDay(page, todo.allDay === true);
+    const currentFields = await page.$$('input, textarea, [contenteditable="true"], [role="textbox"]');
+    const currentMetadata = await Promise.all(currentFields.map(async input => ({ input, data: await input.evaluate(el => ({
+      type: el.type || el.tagName.toLowerCase(),
+      name: el.getAttribute('name') || '',
+      testId: el.getAttribute('data-test-id') || ''
+    })) })));
+    const findField = (name, testId, nativeType) => currentMetadata.find(({ data }) =>
+      data.name === name || data.testId === testId || data.type === nativeType
+    );
+    const startDateInput = findField('dateTime.startDate', 'start-date-picker', 'date');
+    const endDateInput = findField('dateTime.endDate', 'end-date-picker', 'date');
+    const startTimeInput = findField('dateTime.startTime', 'start-time-picker', 'time');
+    const endTimeInput = findField('dateTime.endTime', 'end-time-picker', 'time');
+    if (!startDateInput || !endDateInput) throw new Error('타임트리 날짜 입력란을 찾지 못했습니다.');
+    await setTimeTreeInputValue(startDateInput, startParts.date, startDateInput.data.type === 'text' ? 'date' : 'plain');
+    await setTimeTreeInputValue(endDateInput, endParts.date, endDateInput.data.type === 'text' ? 'date' : 'plain');
+    if (!todo.allDay) {
+      await setTimeTreeInputValue(startTimeInput, startParts.time, startTimeInput.data.type === 'text' ? 'time' : 'plain');
+      await setTimeTreeInputValue(endTimeInput, endParts.time, endTimeInput.data.type === 'text' ? 'time' : 'plain');
+    }
+    const saveButton = await page.evaluateHandle(() => [...document.querySelectorAll('button')].find(button => /^(저장|Save|등록)$/.test(button.textContent.trim())));
+    const saveElement = saveButton.asElement();
+    if (!saveElement) throw new Error('타임트리 저장 버튼을 찾지 못했습니다.');
+    const saveResponses = [];
+    const onSaveResponse = response => {
+      const request = response.request();
+      if (['POST', 'PUT', 'PATCH'].includes(request.method())) {
+        saveResponses.push({ url: response.url(), status: response.status() });
+      }
+    };
+    page.on('response', onSaveResponse);
+    await saveElement.click();
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    page.off('response', onSaveResponse);
+    const saveState = await page.evaluate(() => {
+      const text = document.body?.innerText || '';
+      return {
+        text,
+        explicitFailure: /저장할 수 없|저장에 실패|오류가 발생|실패했습니다|unable to save|failed to save/i.test(text)
+      };
+    });
+    if (saveState.explicitFailure) throw new Error('타임트리에서 일정 저장에 실패했습니다.');
+    const successfulSaveResponse = saveResponses.find(item =>
+      item.status >= 200 && item.status < 300 && /event|calendar/i.test(item.url)
+    );
+    if (!successfulSaveResponse) {
+      throw new Error('타임트리 일정 저장 요청의 성공 응답을 확인하지 못했습니다. 다시 시도해 주세요.');
+    }
+    return { url: page.url(), syncedAt: new Date().toISOString() };
+  } finally { await browser.close(); }
+}
+
+app.get('/api/google-calendar/status', async (req, res) => {
+  let store = readGoogleCalendarTokenStore();
+  let connected = false;
+  let reconnectRequired = false;
+  if (store?.refreshToken) {
+    try {
+      const tokenResult = await getGoogleCalendarAccessToken();
+      store = tokenResult.store;
+      connected = true;
+      if (!store.user) {
+        store.user = await fetchGoogleUser(tokenResult.accessToken);
+        writeGoogleCalendarTokenStore(store);
+      }
+    } catch (error) {
+      reconnectRequired = true;
+      console.warn('Google Calendar connection needs authorization:', error.message);
+    }
+  }
+  res.json({
+    configured: isGoogleCalendarConfigured(), connected, reconnectRequired,
+    sharingReady: Boolean(connected && hasGoogleCalendarSharingScope(store)),
+    calendarId: store?.calendarId || null,
+    calendarName: store?.calendarName || GOOGLE_CALENDAR_FALLBACK_NAME,
+    calendarColor: store?.calendarColor || '#4285f4',
+    account: connected ? (store?.user || null) : null,
+    lastSyncedAt: store?.lastSyncedAt || null,
+    syncedTodoIds: connected ? Object.keys(store?.eventIds || {}) : []
+  });
+});
+
+app.get('/api/google-calendar/android-config', (req, res) => {
+  const config = getGoogleCalendarConfig();
+  res.json({ configured: isGoogleCalendarConfigured(), serverClientId: config.clientId || null });
+});
+
+app.post('/api/google-calendar/android-auth', async (req, res) => {
+  if (!isGoogleCalendarConfigured()) return res.status(503).json({ error: 'Google Calendar is not configured.' });
+  const code = String(req.body?.code || '').trim();
+  if (!code || code.length > 4096) return res.status(400).json({ error: 'Google authorization code is required.' });
+  try {
+    const config = getGoogleCalendarConfig();
+    const response = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code, client_id: config.clientId, client_secret: config.clientSecret, grant_type: 'authorization_code'
+      })
+    });
+    const token = await response.json();
+    if (!response.ok || !token.refresh_token) throw new Error(token.error_description || 'Google refresh token was not returned.');
+    const user = await fetchGoogleUser(token.access_token);
+    writeGoogleCalendarTokenStore({
+      refreshToken: token.refresh_token,
+      accessToken: token.access_token,
+      expiresAt: Date.now() + Number(token.expires_in || 3600) * 1000,
+      scope: token.scope || getGoogleOAuthScopes().join(' '),
+      user,
+      calendarId: '',
+      calendarName: '',
+      calendarColor: '#4285f4',
+      eventIds: {}
+    });
+    res.json({ connected: true, account: user });
+  } catch (error) {
+    console.error('Android Google authorization failed:', error.message);
+    res.status(502).json({ error: error.message });
+  }
+});
+
+app.get('/api/google-calendar/connect', (req, res) => {
+  if (!isGoogleCalendarConfigured()) return res.redirect('/?googleCalendar=not-configured');
+  const config = getGoogleCalendarConfig();
+  const state = crypto.randomBytes(32).toString('base64url');
+  const returnPath = req.query.mobile === '1' || /^\/m(?:obile)?(?:\/|$)/.test(req.get('referer') || '') ? '/m' : '/';
+  res.setHeader('Set-Cookie', [
+    `${GOOGLE_CALENDAR_STATE_COOKIE}=${state}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600`,
+    `${GOOGLE_CALENDAR_RETURN_COOKIE}=${encodeURIComponent(returnPath)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600`
+  ]);
+  const params = new URLSearchParams({
+    client_id: config.clientId,
+    redirect_uri: config.redirectUri,
+    response_type: 'code',
+    scope: getGoogleOAuthScopes().join(' '),
+    access_type: 'offline',
+    include_granted_scopes: 'true',
+    prompt: 'consent',
+    state
+  });
+  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
+});
+
+app.get('/api/google-calendar/callback', async (req, res) => {
+  const cookies = parseRequestCookies(req);
+  let returnPath = cookies[GOOGLE_CALENDAR_RETURN_COOKIE] || '/';
+  if (!/^\/(?:m|mobile)?$/.test(returnPath)) returnPath = '/';
+  const finish = result => {
+    clearGoogleCalendarStateCookie(res);
+    res.redirect(`${returnPath}?googleCalendar=${encodeURIComponent(result)}`);
+  };
+  if (!isGoogleCalendarConfigured() || !req.query.code || !req.query.state || req.query.state !== cookies[GOOGLE_CALENDAR_STATE_COOKIE]) {
+    return finish('failed');
+  }
+  try {
+    const config = getGoogleCalendarConfig();
+    const response = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code: String(req.query.code), client_id: config.clientId, client_secret: config.clientSecret,
+        redirect_uri: config.redirectUri, grant_type: 'authorization_code'
+      })
+    });
+    const token = await response.json();
+    if (!response.ok || !token.refresh_token) throw new Error(token.error_description || 'Google refresh token was not returned.');
+    const user = await fetchGoogleUser(token.access_token);
+    writeGoogleCalendarTokenStore({
+      refreshToken: token.refresh_token,
+      accessToken: token.access_token,
+      expiresAt: Date.now() + Number(token.expires_in || 3600) * 1000,
+      scope: token.scope || getGoogleOAuthScopes().join(' '),
+      user,
+      calendarId: '',
+      calendarName: '',
+      calendarColor: '#4285f4',
+      eventIds: {}
+    });
+    return finish('connected');
+  } catch (error) {
+    console.error('Google OAuth callback failed:', error.message);
+    return finish('failed');
+  }
+});
+
+app.post('/api/google-calendar/sync', async (req, res) => {
+  res.status(410).json({ error: '전체 동기화는 사용하지 않습니다. 일정 상세에서 필요한 일정만 동기화해 주세요.' });
+});
+
+app.post('/api/google-calendar/sync/:todoId', async (req, res) => {
+  try {
+    const result = await (googleCalendarSyncQueue = googleCalendarSyncQueue
+      .catch(() => undefined)
+      .then(() => syncTodoToGoogleCalendar(req.params.todoId)));
+    res.json(result);
+  } catch (error) { res.status(error.status || 502).json({ error: error.message }); }
+});
+
+app.get('/api/google-calendar/events', async (req, res) => {
+  try {
+    const events = await listSelectedGoogleCalendarTodos();
+    res.json({ events });
+  } catch (error) { res.status(error.status || 502).json({ error: error.message }); }
+});
+
+app.get('/api/google-calendar/calendars', async (req, res) => {
+  try {
+    const { store } = await getGoogleCalendarAccessToken();
+    const result = await googleCalendarRequest('https://www.googleapis.com/calendar/v3/users/me/calendarList?minAccessRole=writer');
+    const calendars = (result.items || [])
+      .filter(calendar => ['owner', 'writer'].includes(calendar.accessRole))
+      .map(calendar => ({ id: calendar.id, name: calendar.summaryOverride || calendar.summary || GOOGLE_CALENDAR_FALLBACK_NAME, primary: Boolean(calendar.primary), color: calendar.backgroundColor || '#4285f4' }));
+    res.json({ calendars, selectedCalendarId: store.calendarId || null });
+  } catch (error) { res.status(error.status || 502).json({ error: error.message }); }
+});
+
+app.post('/api/google-calendar/calendar', async (req, res) => {
+  try {
+    const calendarId = String(req.body?.calendarId || '').trim();
+    if (!calendarId) return res.status(400).json({ error: '동기화할 캘린더를 선택해 주세요.' });
+    const { store } = await getGoogleCalendarAccessToken();
+    const result = await googleCalendarRequest('https://www.googleapis.com/calendar/v3/users/me/calendarList?minAccessRole=writer');
+    const calendar = (result.items || []).find(item => item.id === calendarId && ['owner', 'writer'].includes(item.accessRole));
+    if (!calendar) return res.status(400).json({ error: '일정을 쓸 수 있는 캘린더가 아닙니다.' });
+    if (store.calendarId !== calendar.id) store.eventIds = {};
+    store.calendarId = calendar.id;
+    store.calendarName = calendar.summaryOverride || calendar.summary || GOOGLE_CALENDAR_FALLBACK_NAME;
+    store.calendarColor = calendar.backgroundColor || '#4285f4';
+    writeGoogleCalendarTokenStore(store);
+    res.json({ calendarId: store.calendarId, calendarName: store.calendarName, calendarColor: store.calendarColor });
+  } catch (error) { res.status(error.status || 502).json({ error: error.message }); }
+});
+
+app.post('/api/google-calendar/disconnect', async (req, res) => {
+  const store = readGoogleCalendarTokenStore();
+  if (store?.refreshToken) {
+    await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(store.refreshToken)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    }).catch(() => undefined);
+  }
+  fs.rmSync(GOOGLE_CALENDAR_TOKEN_FILE, { force: true });
+  res.json({ connected: false });
+});
+
+app.get('/api/timetree/status', (req, res) => {
+  const session = getTimeTreeSession(req);
+  const store = readTimeTreeStore();
+  res.json({ connected: Boolean(session), syncedTodoIds: Object.keys(store.syncedTodos || {}) });
+});
+
+app.post('/api/timetree/login', async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+    if (!email || !password) return res.status(400).json({ error: '이메일과 비밀번호를 입력해 주세요.' });
+    const cookies = await loginToTimeTree(String(email).trim(), String(password));
+    const store = readTimeTreeStore();
+    const token = crypto.randomBytes(32).toString('base64url');
+    store.sessions ||= {};
+    store.sessions[token] = { encryptedCookies: encryptKidsNoteCookie(JSON.stringify(cookies)), expiresAt: Date.now() + TIMETREE_SESSION_TTL_MS };
+    writeTimeTreeStore(store);
+    res.setHeader('Set-Cookie', `${TIMETREE_SESSION_COOKIE}=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${TIMETREE_SESSION_TTL_MS / 1000}`);
+    res.json({ connected: true });
+  } catch (error) { res.status(error.status || 401).json({ error: error.message }); }
+});
+
+app.post('/api/timetree/sync/:id', async (req, res) => {
+  const session = getTimeTreeSession(req);
+  if (!session) return res.status(401).json({ error: '메뉴에서 타임트리를 먼저 연결해 주세요.' });
+  const force = req.query.force === '1';
+  const todo = await db.getTodoById(req.params.id);
+  if (!todo) return res.status(404).json({ error: '일정을 찾지 못했습니다.' });
+  const store = readTimeTreeStore();
+  if (store.syncedTodos?.[todo.id] && !force) return res.json({ alreadySynced: true, ...store.syncedTodos[todo.id] });
+  try {
+    const result = await (timeTreeSyncQueue = timeTreeSyncQueue.catch(() => {}).then(() => Promise.race([
+      syncTodoToTimeTree(todo, session.cookies),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('타임트리 동기화가 30초 안에 끝나지 않았습니다.')), 30000))
+    ])));
+    const latest = readTimeTreeStore();
+    latest.syncedTodos ||= {};
+    latest.syncedTodos[todo.id] = result;
+    writeTimeTreeStore(latest);
+    res.json({ synced: true, ...result });
+  } catch (error) { res.status(502).json({ error: error.message }); }
+});
+
+app.delete('/api/timetree/session', (req, res) => {
+  const token = parseRequestCookies(req)[TIMETREE_SESSION_COOKIE];
+  const store = readTimeTreeStore();
+  if (token && store.sessions) delete store.sessions[token];
+  writeTimeTreeStore(store);
+  res.setHeader('Set-Cookie', `${TIMETREE_SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
+  res.json({ connected: false });
+});
+
 app.get('/api/kidsnote/session', (req, res) => {
   const session = getSavedKidsNoteSession(req);
   res.json(session
@@ -1510,6 +1999,60 @@ app.delete('/api/kidsnote/session', (req, res) => {
   res.json({ connected: false });
 });
 
+function collectKidsNoteGalleryImages(value, date, output, depth = 0, keyHint = '') {
+  if (value == null || depth > 6) return;
+  if (Array.isArray(value)) {
+    value.forEach(item => collectKidsNoteGalleryImages(item, date, output, depth + 1, keyHint));
+    return;
+  }
+  if (typeof value !== 'object') return;
+
+  const imageKeyPattern = /(image|photo|picture|attachment|original|large|url)/i;
+  const preferredKeys = ['original_url', 'original', 'large_url', 'url_big', 'image_url', 'file_url', 'url'];
+  for (const key of preferredKeys) {
+    const candidate = value[key];
+    if (typeof candidate !== 'string' || !/^https:\/\//i.test(candidate)) continue;
+    if (!imageKeyPattern.test(`${keyHint} ${key}`)) continue;
+    const normalized = candidate.replace(/&amp;/g, '&');
+    if (!output.has(normalized)) output.set(normalized, { url: normalized, date });
+    return;
+  }
+
+  for (const [key, nested] of Object.entries(value)) {
+    if (typeof nested === 'string' && /^https:\/\//i.test(nested) && imageKeyPattern.test(key)) {
+      const normalized = nested.replace(/&amp;/g, '&');
+      if (!output.has(normalized)) output.set(normalized, { url: normalized, date });
+    } else if (nested && typeof nested === 'object') {
+      collectKidsNoteGalleryImages(nested, date, output, depth + 1, key);
+    }
+  }
+}
+
+app.get('/api/kidsnote/gallery', async (req, res) => {
+  const session = getSavedKidsNoteSession(req);
+  if (!session) return res.status(401).json({ error: '키즈노트 로그인이 필요합니다.' });
+  const year = String(req.query.year || '');
+  if (!/^20\d{2}$/.test(year)) return res.status(400).json({ error: '조회할 연도를 확인해 주세요.' });
+  try {
+    const reports = await fetchKidsNoteReports(session.childId, session.cookie, {
+      enrollment: session.enrollment,
+      maxPages: 20
+    });
+    const images = new Map();
+    for (const report of reports) {
+      const date = String(report?.date_written || report?.created || report?.created_at || '').slice(0, 10);
+      if (!date.startsWith(year)) continue;
+      collectKidsNoteGalleryImages(report, date, images);
+    }
+    const photos = [...images.values()].sort((a, b) => b.date.localeCompare(a.date));
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ year, count: photos.length, photos });
+  } catch (error) {
+    console.error('KidsNote gallery error:', error.message);
+    res.status(error.status || 502).json({ error: error.message || '사진 목록을 불러오지 못했습니다.' });
+  }
+});
+
 // Parse a user's direct natural-language schedule request into reviewable events.
 app.post('/api/todos/parse-natural-language', async (req, res) => {
   const { text, baseDate } = req.body;
@@ -1521,11 +2064,6 @@ app.post('/api/todos/parse-natural-language', async (req, res) => {
   }
 
   const referenceDate = baseDate || new Date().toISOString();
-  const hasDateExpression = /(오늘|내일|모레|글피|이번\s*주|다음\s*주|다다음\s*주|월요일|화요일|수요일|목요일|금요일|토요일|일요일|\d{1,2}\s*월\s*\d{1,2}\s*일|\d{4}[-./년]\s*\d{1,2}[-./월]\s*\d{1,2})/i.test(text);
-  const hasTimeExpression = /((오전|오후|아침|저녁|밤|새벽)\s*\d{1,2}\s*시|\d{1,2}\s*시(\s*\d{1,2}\s*분)?|\d{1,2}:\d{2}|정오|자정)/i.test(text);
-  if (!hasDateExpression) {
-    return res.json({ events: [], clarification: '일정을 등록할 날짜를 알려주세요.' });
-  }
   const dateHints = buildNaturalDateHints(text, referenceDate);
   const naturalSchedulePrompt = `You convert a user's Korean natural-language request into calendar events for review.
 Current reference time: ${referenceDate}
@@ -1536,8 +2074,8 @@ RULES:
 3. Resolve 오늘, 내일, 모레, 이번 주, 다음 주 from the current reference time.
 4. DATE_HINT is calculated by the application and is authoritative. Copy its date exactly and never recalculate it.
 5. Convert 오전/오후 correctly. Noon is 12:00 and midnight is 00:00.
-6. A date is required. If the date is missing or ambiguous, return no event for that portion and ask one concise Korean question in clarification.
-7. If an event has no explicit schedule time, it is an all-day event. Set allDay to true, startDate to 00:00:00, and endDate to 23:59:59 on that date. Never ask for a time and never invent 09:00 or another arbitrary time.
+6. If the date is not specified, default to the date of the current reference time.
+7. If an event has no explicit schedule time, it is an all-day event. Set allDay to true, startDate to 00:00:00, and endDate to 23:59:59 on that date.
 8. If an event has an explicit schedule time, set allDay to false. If duration or end time is absent, set endDate to one hour after startDate.
 9. startDate and endDate must be ISO 8601 with the same timezone offset as the reference time.
 10. category: work for company/business, study for classes/exams/assignments, personal for health/family/friends/leisure, otherwise general.
@@ -1624,6 +2162,10 @@ Return one JSON object containing events and clarification. Return no prose or m
 });
 
 
+app.all('/api/*', (req, res) => {
+  res.status(404).json({ error: 'API endpoint not found' });
+});
+
 // Serve frontend SPA index.html for all other routes
 app.get('*', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
@@ -1644,4 +2186,10 @@ async function startServer() {
   }
 }
 
-startServer();
+if (require.main === module) startServer();
+
+module.exports = {
+  app,
+  areSameKidsNoteCandidate,
+  deduplicateKidsNoteEvents
+};
