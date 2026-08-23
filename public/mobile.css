@@ -678,6 +678,11 @@ input, textarea, select { font-size: 18px !important; }
 #google-calendar-modal .modal-footer .btn { width: 100% !important; min-width: 0 !important; padding: 11px 10px !important; font-size: .82rem !important; white-space: nowrap; }
 #google-calendar-modal .btn-google { border: 1px solid #d9e2ef; background: #fff; color: #25364c; box-shadow: 0 5px 16px rgba(42,75,112,.09); }
 #task-modal .btn-google-task { border: 1px solid #cbdcf6; background: #eef5ff; color: #2467c7; }
+#task-modal .task-calendar-source { display: inline-flex; width: fit-content; margin: -7px 0 16px; padding: 5px 10px; align-items: center; border: 1px solid #dfe5e2; border-radius: 999px; background: #f5f7f6; color: #55615b; font-size: .74rem; font-weight: 800; }
+#task-modal .task-calendar-source::before { width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: currentColor; content: ''; }
+#task-modal .task-calendar-source.is-device { border-color: #d7d5fb; background: #f1f0ff; color: #4f46e5; }
+#task-modal .task-calendar-source.is-kidsnote { border-color: #bfe9d6; background: #effaf4; color: #169669; }
+#task-modal .task-calendar-source.is-google { border-color: #cfe0f9; background: #eef5ff; color: #2b73d2; }
 .google-g { margin-right: 7px; color: #4285f4; font-family: Arial,sans-serif; font-size: 1.1em; font-weight: 900; }
 
 @media (min-width: 600px) {

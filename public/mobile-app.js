@@ -1111,6 +1111,24 @@ function getTodoScheduleType(todo) {
   return 'device';
 }
 
+function updateTaskCalendarSource(todo) {
+  const source = document.getElementById('task-calendar-source');
+  if (!source) return;
+  if (!todo) {
+    source.className = 'task-calendar-source hidden';
+    source.textContent = '';
+    return;
+  }
+  const type = getTodoScheduleType(todo);
+  const labels = {
+    device: '디바이스',
+    kidsnote: '키즈노트',
+    google: `Google · ${todo.googleCalendarName || currentGoogleCalendarName || 'Google 캘린더'}`
+  };
+  source.className = `task-calendar-source is-${type}`;
+  source.textContent = labels[type] || '디바이스';
+}
+
 // Get filtered tasks helper
 function getFilteredTodos() {
   return todos.filter(todo => {
@@ -1812,6 +1830,7 @@ function updateStats() {
 function openModal(todo = null, customStart = null, customEnd = null) {
   taskForm.reset();
   editingNaverMapLink = '';
+  updateTaskCalendarSource(todo);
 
   // Preset default colors borders
   document.querySelectorAll('.preset-color').forEach(p => p.classList.remove('active'));

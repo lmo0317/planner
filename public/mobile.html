@@ -11,7 +11,7 @@
   <!-- Lucide Icons CDN -->
   <script src="vendor/lucide.min.js"></script>
   <!-- Dedicated Mobile CSS -->
-  <link rel="stylesheet" href="mobile.css?v=20260823-google-per-event-v1">
+  <link rel="stylesheet" href="mobile.css?v=20260823-calendar-source-v1">
 </head>
 <body class="light-theme">
   <div class="glow-bg">
@@ -243,6 +243,7 @@
     <div class="modal-content glass">
       <span class="close-modal"><i data-lucide="x"></i></span>
       <h2 id="modal-title">새 일정 추가</h2>
+      <div id="task-calendar-source" class="task-calendar-source hidden" aria-label="일정 캘린더"></div>
       <form id="task-form">
         <input type="hidden" id="task-id">
 
@@ -469,6 +470,6 @@
   </div>
 
   <script src="offline-storage.js"></script>
-  <script src="mobile-app.js?v=20260823-google-per-event-v1"></script>
+  <script src="mobile-app.js?v=20260823-calendar-source-v1"></script>
 </body>
 </html>
