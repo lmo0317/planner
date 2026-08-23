@@ -993,7 +993,9 @@ function areGoogleMirrorTodosEquivalent(plannerTodo, googleTodo) {
 
 function mergePlannerAndGoogleTodos(plannerTodos, googleTodos) {
   const plannerById = new Map(plannerTodos.map(todo => [String(todo.id), todo]));
-  const plannerGoogleEventIds = new Set(plannerTodos.map(todo => todo.googleEventId).filter(Boolean).map(String));
+  const plannerByGoogleEventId = new Map(plannerTodos
+    .filter(todo => todo.googleEventId)
+    .map(todo => [String(todo.googleEventId), todo]));
   const mirrorsByPlannerId = new Map();
   const googleOnlyTodos = [];
 
@@ -1005,7 +1007,8 @@ function mergePlannerAndGoogleTodos(plannerTodos, googleTodos) {
       googleSyncedTodoIds.add(plannerTodoId);
       return;
     }
-    if (googleTodo.googleEventId && plannerGoogleEventIds.has(String(googleTodo.googleEventId))) return;
+    const plannerGoogleTodo = plannerByGoogleEventId.get(String(googleTodo.googleEventId || ''));
+    if (plannerGoogleTodo && areGoogleMirrorTodosEquivalent(plannerGoogleTodo, googleTodo)) return;
     googleOnlyTodos.push(googleTodo);
   });
 
