@@ -7146,6 +7146,14 @@ justify-content: flex-end;
 }
 
 /* Calendar identity is the only event color theme. */
+.event-calendar-badges {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
 .event-calendar-source {
   display: inline-flex;
   width: fit-content;
@@ -7163,11 +7171,34 @@ justify-content: flex-end;
 .event-calendar-source.is-device { background: #eeedff; color: #4338ca; }
 .event-calendar-source.is-kidsnote { background: #e9f9f1; color: #087a54; }
 .event-calendar-source.is-google { background: #eaf2ff; color: #2467c7; }
-.week-event-card .event-calendar-source,
-.day-event-card .event-calendar-source,
-.day-timeline-event-card .event-calendar-source {
+.event-google-sync-status {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  padding: 2px 7px;
+  align-items: center;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eaf2ff;
+  color: #2467c7;
+  font-size: .66rem;
+  font-weight: 800;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.week-event-card .event-calendar-badges,
+.day-event-card .event-calendar-badges,
+.day-timeline-event-card .event-calendar-badges {
   margin-top: 3px;
+}
+.week-event-card .event-calendar-source,
+.week-event-card .event-google-sync-status,
+.day-event-card .event-calendar-source,
+.day-event-card .event-google-sync-status,
+.day-timeline-event-card .event-calendar-source,
+.day-timeline-event-card .event-google-sync-status {
   background: rgba(255, 255, 255, .88);
   color: #26312d;
 }
-#day-agenda-modal .event-calendar-source { align-self: flex-start; }
+#day-agenda-modal .event-calendar-badges { align-self: flex-start; }

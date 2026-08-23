@@ -1150,11 +1150,21 @@ function getTodoCalendarColor(todo) {
 }
 
 function appendTodoCalendarBadge(container, todo) {
+  const badges = document.createElement('span');
+  badges.className = 'event-calendar-badges';
   const badge = document.createElement('span');
   const type = getTodoScheduleType(todo);
   badge.className = `event-calendar-source is-${type}`;
   badge.textContent = getTodoCalendarLabel(todo);
-  container.appendChild(badge);
+  badges.appendChild(badge);
+  if (isTodoGoogleSynced(todo)) {
+    const syncStatus = document.createElement('span');
+    syncStatus.className = 'event-google-sync-status';
+    syncStatus.textContent = 'Google 동기화됨 ✓';
+    syncStatus.title = todo.googleSyncCalendarName || currentGoogleCalendarName || 'Google 캘린더';
+    badges.appendChild(syncStatus);
+  }
+  container.appendChild(badges);
   return badge;
 }
 
