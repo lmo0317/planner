@@ -60,6 +60,7 @@ const dayAgendaTitle = document.getElementById('day-agenda-title');
 const dayAgendaCount = document.getElementById('day-agenda-count');
 const dayAgendaList = document.getElementById('day-agenda-list');
 let dayAgendaDate = null;
+let modalPageStack = [];
 
 // Views Panels
 const calendarViewPanel = document.getElementById('calendar-view');
@@ -117,6 +118,10 @@ let isGoogleSyncing = false;
 let isExplicitGoogleSyncRequest = false;
 
 window.handleNativeBackButton = () => {
+  if (taskModal?.classList.contains('open')) {
+    closeModal();
+    return true;
+  }
   if (document.querySelector('.modal.open')) {
     document.querySelector('.modal.open')?.classList.remove('open');
     return true;
@@ -786,8 +791,9 @@ function setupEventListeners() {
   btnDayAgendaAdd.addEventListener('click', () => {
     const startIso = `${dayAgendaDate}T09:00`;
     const endIso = `${dayAgendaDate}T10:00`;
+    const returnDate = dayAgendaDate;
     closeDayAgendaModal();
-    openModal(null, startIso, endIso);
+    openModal(null, startIso, endIso, { type: 'dayAgenda', date: returnDate });
   });
 
   scheduleTypeFilters.forEach(filter => {
@@ -808,27 +814,6 @@ function setupEventListeners() {
     if (e.target === dayAgendaModal) {
       closeDayAgendaModal();
     }
-  });
-
-  // Preset Colors in Modal
-  document.querySelectorAll('.preset-color').forEach(el => {
-    el.addEventListener('click', () => {
-      document.querySelectorAll('.preset-color').forEach(p => p.classList.remove('active'));
-      el.classList.add('active');
-      document.getElementById('task-color').value = el.dataset.color;
-    });
-  });
-
-  // Update preset color active border when color input changes
-  document.getElementById('task-color').addEventListener('input', (e) => {
-    const val = e.target.value.toLowerCase();
-    document.querySelectorAll('.preset-color').forEach(p => {
-      if (p.dataset.color.toLowerCase() === val) {
-        p.classList.add('active');
-      } else {
-        p.classList.remove('active');
-      }
-    });
   });
 
   // Mobile Topbar Calendar Navigation Arrows
@@ -974,12 +959,44 @@ async function fetchTodos() {
     } catch (error) {
       console.warn('Google calendar events are unavailable:', error.message);
     }
-    todos = [...plannerTodos, ...googleTodos];
+    todos = mergePlannerAndGoogleTodos(plannerTodos, googleTodos);
     render();
     updateStats();
   } catch (error) {
     showToast(error.message, 'danger');
   }
+}
+
+function mergePlannerAndGoogleTodos(plannerTodos, googleTodos) {
+  const plannerById = new Map(plannerTodos.map(todo => [String(todo.id), todo]));
+  const plannerGoogleEventIds = new Set(plannerTodos.map(todo => todo.googleEventId).filter(Boolean).map(String));
+  const mirrorsByPlannerId = new Map();
+  const googleOnlyTodos = [];
+
+  googleTodos.forEach(googleTodo => {
+    const plannerTodoId = googleTodo.plannerTodoId == null ? '' : String(googleTodo.plannerTodoId);
+    if (plannerTodoId && plannerById.has(plannerTodoId)) {
+      mirrorsByPlannerId.set(plannerTodoId, googleTodo);
+      googleSyncedTodoIds.add(plannerTodoId);
+      return;
+    }
+    if (googleTodo.googleEventId && plannerGoogleEventIds.has(String(googleTodo.googleEventId))) return;
+    googleOnlyTodos.push(googleTodo);
+  });
+
+  const mergedPlannerTodos = plannerTodos.map(todo => {
+    const todoId = String(todo.id);
+    const mirror = mirrorsByPlannerId.get(todoId);
+    if (!mirror && !googleSyncedTodoIds.has(todoId)) return todo;
+    return {
+      ...todo,
+      googleSynced: true,
+      googleSyncEventId: mirror?.googleEventId || null,
+      googleSyncCalendarName: mirror?.googleCalendarName || currentGoogleCalendarName || 'Google 캘린더'
+    };
+  });
+
+  return [...mergedPlannerTodos, ...googleOnlyTodos];
 }
 
 async function syncCurrentTaskToGoogle() {
@@ -1000,6 +1017,9 @@ async function syncCurrentTaskToGoogle() {
       if (!response.ok) throw new Error(result.error || 'Google 동기화에 실패했습니다.');
     }
     googleSyncedTodoIds.add(String(todo.id));
+    todo.googleSynced = true;
+    todo.googleSyncCalendarName = result.calendarName || currentGoogleCalendarName || 'Google 캘린더';
+    updateTaskCalendarSource(todo);
     btnSyncTaskGoogle.textContent = 'Google 다시 동기화';
     showToast(`'${todo.title}' 일정을 Google에 동기화했습니다.`, 'success');
     await fetchTodos();
@@ -1111,22 +1131,62 @@ function getTodoScheduleType(todo) {
   return 'device';
 }
 
+const CALENDAR_SOURCE_COLORS = {
+  device: '#4f46e5',
+  kidsnote: '#10b981',
+  google: '#4285f4'
+};
+
+function getTodoCalendarLabel(todo) {
+  const type = getTodoScheduleType(todo);
+  if (type === 'kidsnote') return '키즈노트';
+  if (type === 'google') return `Google · ${todo.googleCalendarName || currentGoogleCalendarName || 'Google 캘린더'}`;
+  return '디바이스';
+}
+
+function getTodoCalendarColor(todo) {
+  const type = getTodoScheduleType(todo);
+  return type === 'google' ? (todo.color || CALENDAR_SOURCE_COLORS.google) : CALENDAR_SOURCE_COLORS[type];
+}
+
+function appendTodoCalendarBadge(container, todo) {
+  const badge = document.createElement('span');
+  const type = getTodoScheduleType(todo);
+  badge.className = `event-calendar-source is-${type}`;
+  badge.textContent = getTodoCalendarLabel(todo);
+  container.appendChild(badge);
+  return badge;
+}
+
+function isTodoGoogleSynced(todo) {
+  return getTodoScheduleType(todo) !== 'google'
+    && Boolean(todo.googleSynced || googleSyncedTodoIds.has(String(todo.id)));
+}
+
 function updateTaskCalendarSource(todo) {
   const source = document.getElementById('task-calendar-source');
+  const googleStatus = document.getElementById('task-google-sync-status');
+  const calendarMeta = source?.closest('.task-calendar-meta');
   if (!source) return;
   if (!todo) {
+    calendarMeta?.classList.add('hidden');
     source.className = 'task-calendar-source hidden';
     source.textContent = '';
+    googleStatus?.classList.add('hidden');
+    if (googleStatus) googleStatus.textContent = 'Google 동기화됨';
     return;
   }
+  calendarMeta?.classList.remove('hidden');
   const type = getTodoScheduleType(todo);
-  const labels = {
-    device: '디바이스',
-    kidsnote: '키즈노트',
-    google: `Google · ${todo.googleCalendarName || currentGoogleCalendarName || 'Google 캘린더'}`
-  };
   source.className = `task-calendar-source is-${type}`;
-  source.textContent = labels[type] || '디바이스';
+  source.textContent = getTodoCalendarLabel(todo);
+  if (googleStatus) {
+    const synced = isTodoGoogleSynced(todo);
+    googleStatus.classList.toggle('hidden', !synced);
+    googleStatus.textContent = synced
+      ? `Google 동기화됨 · ${todo.googleSyncCalendarName || currentGoogleCalendarName || 'Google 캘린더'}`
+      : 'Google 동기화됨';
+  }
 }
 
 // Get filtered tasks helper
@@ -1289,7 +1349,7 @@ function renderMobileMonth(year, month, startDayOfWeek, totalDays, requiredCellC
       dayTodos.slice(0, 3).forEach(todo => {
         const event = document.createElement('span');
         event.classList.add('mobile-month-event');
-        event.style.backgroundColor = todo.color || '#2cc985';
+        event.style.backgroundColor = getTodoCalendarColor(todo);
         event.textContent = todo.title;
         events.appendChild(event);
       });
@@ -1339,7 +1399,7 @@ function renderMobileDayAgenda() {
     item.type = 'button';
     item.classList.add('mobile-agenda-card');
     if (todo.completed) item.classList.add('completed');
-    item.style.setProperty('--mobile-agenda-color', todo.color || '#2cc985');
+    item.style.setProperty('--mobile-agenda-color', getTodoCalendarColor(todo));
     const isAllDay = todo.allDay || todo.startDate.substring(0, 10) < todo.endDate.substring(0, 10);
 
     const time = document.createElement('span');
@@ -1350,13 +1410,14 @@ function renderMobileDayAgenda() {
     const title = document.createElement('strong');
     title.textContent = todo.title;
     content.appendChild(title);
+    appendTodoCalendarBadge(content, todo);
     if (todo.content) {
       const detail = document.createElement('small');
       appendLinkedContent(detail, todo.content);
       content.appendChild(detail);
     }
     item.append(time, content);
-    item.addEventListener('click', () => openModal(todo));
+    item.addEventListener('click', () => openModal(todo, null, null, { type: 'dayAgenda', date: mobileSelectedDate }));
     mobileDayAgendaList.appendChild(item);
   });
 }
@@ -1464,8 +1525,9 @@ function createCalendarCell(date, isCurrentMonth, isToday = false) {
       if (continuesAfter) eventEl.classList.add('continues-after');
       if (todo.completed) eventEl.classList.add('completed');
 
-      eventEl.style.backgroundColor = todo.color;
-      eventEl.style.borderLeftColor = darkenColor(todo.color, -30);
+      const calendarColor = getTodoCalendarColor(todo);
+      eventEl.style.backgroundColor = calendarColor;
+      eventEl.style.borderLeftColor = darkenColor(calendarColor, -30);
 
       const isTimedEvent = false;
       if (continuesBefore) {
@@ -1483,8 +1545,8 @@ function createCalendarCell(date, isCurrentMonth, isToday = false) {
         eventEl.textContent = todo.title;
       }
       eventEl.title = todo.allDay
-        ? `${todo.title}\n(종일)`
-        : `${todo.title}\n(${formatTime(todo.startDate)} ~ ${formatTime(todo.endDate)})`;
+        ? `${getTodoCalendarLabel(todo)} · ${todo.title}\n(종일)`
+        : `${getTodoCalendarLabel(todo)} · ${todo.title}\n(${formatTime(todo.startDate)} ~ ${formatTime(todo.endDate)})`;
 
       // A compact card opens the full agenda for this date.
       eventEl.addEventListener('click', (e) => {
@@ -1545,7 +1607,7 @@ function openDayAgendaModal(dateString) {
       empty.innerHTML = '<p style="margin:0 0 12px; font-size: 0.92rem;">등록된 일정이 없습니다.</p><button type="button" class="btn btn-primary" style="margin:0 auto; padding:8px 16px; font-size:0.85rem;"><i data-lucide="plus"></i> 이 날짜에 일정 추가</button>';
       empty.querySelector('button')?.addEventListener('click', () => {
         closeDayAgendaModal();
-        openModal(null, `${dateString}T09:00`, `${dateString}T10:00`);
+        openModal(null, `${dateString}T09:00`, `${dateString}T10:00`, { type: 'dayAgenda', date: dateString });
       });
       dayAgendaList.appendChild(empty);
     } else {
@@ -1553,7 +1615,7 @@ function openDayAgendaModal(dateString) {
         const item = document.createElement('div');
         item.classList.add('day-agenda-item');
         if (todo.completed) item.classList.add('completed');
-        item.style.setProperty('--agenda-color', todo.color || '#2cc985');
+        item.style.setProperty('--agenda-color', getTodoCalendarColor(todo));
 
         const isAllDay = todo.allDay || (todo.startDate && todo.endDate && todo.startDate.substring(0, 10) < todo.endDate.substring(0, 10));
         const time = document.createElement('span');
@@ -1565,6 +1627,7 @@ function openDayAgendaModal(dateString) {
         const title = document.createElement('strong');
         title.textContent = todo.title;
         details.appendChild(title);
+        appendTodoCalendarBadge(details, todo);
         if (todo.content) {
           const content = document.createElement('small');
           appendLinkedContent(content, todo.content);
@@ -1579,14 +1642,14 @@ function openDayAgendaModal(dateString) {
         editButton.textContent = '일정 보기';
         editButton.addEventListener('click', () => {
           closeDayAgendaModal();
-          openModal(todo);
+          openModal(todo, null, null, { type: 'dayAgenda', date: dateString });
         });
         actions.append(editButton);
         item.append(time, details, actions);
         item.addEventListener('click', (e) => {
           if (e.target.closest('.day-agenda-actions')) return;
           closeDayAgendaModal();
-          openModal(todo);
+          openModal(todo, null, null, { type: 'dayAgenda', date: dateString });
         });
         dayAgendaList.appendChild(item);
       });
@@ -1714,7 +1777,7 @@ function createTodoListItem(todo) {
   // Side color border
   const border = document.createElement('div');
   border.classList.add('todo-left-border');
-  border.style.backgroundColor = todo.color;
+  border.style.backgroundColor = getTodoCalendarColor(todo);
   item.appendChild(border);
 
   // Checkbox
@@ -1736,6 +1799,7 @@ function createTodoListItem(todo) {
   const title = document.createElement('h4');
   title.textContent = todo.title;
   details.appendChild(title);
+  appendTodoCalendarBadge(details, todo);
 
   // Time range
   const time = document.createElement('div');
@@ -1827,13 +1891,12 @@ function updateStats() {
 }
 
 // Modal handling
-function openModal(todo = null, customStart = null, customEnd = null) {
+function openModal(todo = null, customStart = null, customEnd = null, returnState = null) {
   taskForm.reset();
   editingNaverMapLink = '';
+  if (returnState) modalPageStack.push(returnState);
+  else modalPageStack = [];
   updateTaskCalendarSource(todo);
-
-  // Preset default colors borders
-  document.querySelectorAll('.preset-color').forEach(p => p.classList.remove('active'));
 
   if (todo) {
     // Edit Mode
@@ -1842,7 +1905,6 @@ function openModal(todo = null, customStart = null, customEnd = null) {
     document.getElementById('task-title').value = todo.title;
     document.getElementById('task-start-date').value = formatIsoForInput(todo.startDate);
     document.getElementById('task-end-date').value = formatIsoForInput(todo.endDate);
-    document.getElementById('task-color').value = todo.color;
     document.getElementById('task-content').value = todo.content;
     editingNaverMapLink = findNaverMapUrl(todo.content);
     if (naverMapPlaceInput) naverMapPlaceInput.value = editingNaverMapLink;
@@ -1853,13 +1915,6 @@ function openModal(todo = null, customStart = null, customEnd = null) {
     if (btnSyncTaskGoogle && !isGoogleEvent) btnSyncTaskGoogle.textContent = googleSyncedTodoIds.has(String(todo.id)) ? 'Google 다시 동기화' : 'Google 동기화';
     taskForm.querySelectorAll('input:not(#task-id), textarea').forEach(field => { field.disabled = isGoogleEvent; });
     document.getElementById('btn-save-task').classList.toggle('hidden', isGoogleEvent);
-
-    // Select active preset color border
-    document.querySelectorAll('.preset-color').forEach(p => {
-      if (p.dataset.color.toLowerCase() === todo.color.toLowerCase()) {
-        p.classList.add('active');
-      }
-    });
   } else {
     // Create Mode
     document.getElementById('modal-title').textContent = '새 일정 추가';
@@ -1871,9 +1926,6 @@ function openModal(todo = null, customStart = null, customEnd = null) {
 
     document.getElementById('task-start-date').value = start;
     document.getElementById('task-end-date').value = end;
-    document.getElementById('task-color').value = '#4f46e5';
-    document.querySelector('.preset-color[data-color="#4f46e5"]').classList.add('active');
-
     btnDeleteTask.classList.add('hidden');
     btnSyncTaskGoogle?.classList.add('hidden');
     taskForm.querySelectorAll('input:not(#task-id), textarea').forEach(field => { field.disabled = false; });
@@ -1884,8 +1936,12 @@ function openModal(todo = null, customStart = null, customEnd = null) {
   lucide.createIcons();
 }
 
-function closeModal() {
+function closeModal({ restorePrevious = true } = {}) {
   taskModal.classList.remove('open');
+  const returnState = modalPageStack.pop();
+  if (restorePrevious && returnState?.type === 'dayAgenda' && returnState.date) {
+    openDayAgendaModal(returnState.date);
+  }
 }
 
 // Handle Task Save Form Submit
@@ -1907,7 +1963,6 @@ async function handleFormSubmit(e) {
     category: existingTodo?.category || 'general',
     priority: existingTodo?.priority || 'medium',
     scheduleType: existingTodo?.scheduleType === 'kidsnote' ? 'kidsnote' : 'general',
-    color: document.getElementById('task-color').value,
     content: syncNaverMapLink(document.getElementById('task-content').value, naverMapLink)
   };
   taskData.allDay = isAllDayRange(taskData.startDate, taskData.endDate);
@@ -3125,12 +3180,14 @@ function renderWeek() {
       const card = document.createElement('div');
       card.classList.add('week-event-card', 'week-all-day-card');
       if (todo.completed) card.classList.add('completed');
-      card.style.backgroundColor = todo.color;
-      card.style.borderLeftColor = darkenColor(todo.color, -30);
+      const calendarColor = getTodoCalendarColor(todo);
+      card.style.backgroundColor = calendarColor;
+      card.style.borderLeftColor = darkenColor(calendarColor, -30);
       const titleEl = document.createElement('div');
       titleEl.classList.add('week-event-title');
       titleEl.textContent = todo.title;
       card.appendChild(titleEl);
+      appendTodoCalendarBadge(card, todo);
       card.addEventListener('click', (e) => {
         e.stopPropagation();
         openModal(todo);
@@ -3146,8 +3203,9 @@ function renderWeek() {
       const card = document.createElement('div');
       card.classList.add('week-event-card', 'week-timed-card');
       if (todo.completed) card.classList.add('completed');
-      card.style.backgroundColor = todo.color;
-      card.style.borderLeftColor = darkenColor(todo.color, -30);
+      const calendarColor = getTodoCalendarColor(todo);
+      card.style.backgroundColor = calendarColor;
+      card.style.borderLeftColor = darkenColor(calendarColor, -30);
       card.style.top = `calc(${start} * var(--week-minute-height))`;
       card.style.height = `max(28px, calc(${end - start} * var(--week-minute-height) - 3px))`;
       card.style.left = `calc(${(lane / laneCount) * 100}% + 2px)`;
@@ -3157,6 +3215,7 @@ function renderWeek() {
       titleEl.classList.add('week-event-title');
       titleEl.textContent = todo.title;
       card.appendChild(titleEl);
+      appendTodoCalendarBadge(card, todo);
       card.addEventListener('click', (e) => {
         e.stopPropagation();
         openModal(todo);
@@ -3498,8 +3557,9 @@ function createDayEventCard(todo) {
   card.classList.add('day-event-card');
   if (todo.completed) card.classList.add('completed');
 
-  card.style.backgroundColor = todo.color || '#6366f1';
-  card.style.borderLeftColor = darkenColor(todo.color || '#6366f1', -30);
+  const calendarColor = getTodoCalendarColor(todo);
+  card.style.backgroundColor = calendarColor;
+  card.style.borderLeftColor = darkenColor(calendarColor, -30);
 
   const titleEl = document.createElement('div');
   titleEl.classList.add('day-event-card-title');
@@ -3511,6 +3571,7 @@ function createDayEventCard(todo) {
   timeEl.classList.add('day-event-card-time');
   timeEl.textContent = isAllDay ? '종일' : `${formatTime(todo.startDate)} - ${formatTime(todo.endDate)}`;
   card.appendChild(timeEl);
+  appendTodoCalendarBadge(card, todo);
 
   card.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -3526,8 +3587,9 @@ function createDayTimelineEventCard(todo, startMinutes, endMinutes) {
   card.classList.add('day-timeline-event-card');
   if (todo.completed) card.classList.add('completed');
 
-  card.style.backgroundColor = todo.color || '#6366f1';
-  card.style.borderLeftColor = darkenColor(todo.color || '#6366f1', -30);
+  const calendarColor = getTodoCalendarColor(todo);
+  card.style.backgroundColor = calendarColor;
+  card.style.borderLeftColor = darkenColor(calendarColor, -30);
 
   card.title = `${formatTime(todo.startDate)} ~ ${formatTime(todo.endDate)} · ${todo.title}`;
 
@@ -3548,6 +3610,7 @@ function createDayTimelineEventCard(todo, startMinutes, endMinutes) {
   }
 
   card.appendChild(contentWrapper);
+  appendTodoCalendarBadge(contentWrapper, todo);
 
   card.addEventListener('click', (e) => {
     e.stopPropagation();

@@ -21,7 +21,7 @@
   <!-- Lucide Icons CDN -->
   <script src="vendor/lucide.min.js"></script>
   <!-- Tailwind/Vanilla CSS -->
-  <link rel="stylesheet" href="style.css?v=20260823-calendar-source-v1">
+  <link rel="stylesheet" href="style.css?v=20260823-google-merge-v3">
 </head>
 <body class="light-theme">
   <div class="glow-bg">
@@ -259,7 +259,10 @@
     <div class="modal-content glass">
       <span class="close-modal"><i data-lucide="x"></i></span>
       <h2 id="modal-title">새 일정 추가</h2>
-      <div id="task-calendar-source" class="task-calendar-source hidden" aria-label="일정 캘린더"></div>
+      <div class="task-calendar-meta hidden">
+        <div id="task-calendar-source" class="task-calendar-source hidden" aria-label="일정 캘린더"></div>
+        <div id="task-google-sync-status" class="task-google-sync-status hidden" aria-label="Google 동기화 상태">Google 동기화됨</div>
+      </div>
       <form id="task-form">
         <input type="hidden" id="task-id">
 
@@ -276,21 +279,6 @@
           <div class="form-group">
             <label for="task-end-date">종료 일시</label>
             <input type="datetime-local" id="task-end-date" required>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label for="task-color">색상 테마</label>
-          <div class="color-picker-wrapper">
-            <input type="color" id="task-color" value="#4f46e5">
-            <div class="preset-colors">
-              <span class="preset-color" style="background-color: #4f46e5" data-color="#4f46e5"></span>
-              <span class="preset-color" style="background-color: #06b6d4" data-color="#06b6d4"></span>
-              <span class="preset-color" style="background-color: #10b981" data-color="#10b981"></span>
-              <span class="preset-color" style="background-color: #f59e0b" data-color="#f59e0b"></span>
-              <span class="preset-color" style="background-color: #ef4444" data-color="#ef4444"></span>
-              <span class="preset-color" style="background-color: #ec4899" data-color="#ec4899"></span>
-            </div>
           </div>
         </div>
 
@@ -486,6 +474,6 @@
   </div>
 
   <script src="offline-storage.js"></script>
-  <script src="app.js?v=20260823-calendar-source-v1"></script>
+  <script src="app.js?v=20260823-google-merge-v3"></script>
 </body>
 </html>

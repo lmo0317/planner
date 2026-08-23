@@ -342,10 +342,6 @@ button { cursor: pointer; }
 }
 .form-group textarea { resize: vertical; }
 .form-row { display: grid; grid-template-columns: 1fr; gap: 0; }
-.color-picker-wrapper { display: flex; align-items: center; gap: 10px; }
-#task-color { width: 44px; height: 44px; padding: 2px; }
-.preset-colors { display: flex; flex-wrap: wrap; gap: 8px; }
-.preset-color { display: block; width: 27px; height: 27px; border-radius: 8px; }
 .modal-footer { display: flex; position: sticky; bottom: -18px; z-index: 3; margin-top: 20px; padding: 12px 0 max(18px, env(safe-area-inset-bottom)); align-items: center; justify-content: space-between; gap: 9px; background: #fff; }
 .footer-right { display: flex; min-width: 0; flex: 1; justify-content: flex-end; gap: 8px; }
 .footer-right .btn { flex: 1; }
@@ -678,11 +674,16 @@ input, textarea, select { font-size: 18px !important; }
 #google-calendar-modal .modal-footer .btn { width: 100% !important; min-width: 0 !important; padding: 11px 10px !important; font-size: .82rem !important; white-space: nowrap; }
 #google-calendar-modal .btn-google { border: 1px solid #d9e2ef; background: #fff; color: #25364c; box-shadow: 0 5px 16px rgba(42,75,112,.09); }
 #task-modal .btn-google-task { border: 1px solid #cbdcf6; background: #eef5ff; color: #2467c7; }
+#task-modal .task-calendar-meta { display: flex; margin: -7px 0 16px; flex-wrap: wrap; align-items: center; gap: 7px; }
+#task-modal .task-calendar-meta.hidden { display: none; }
 #task-modal .task-calendar-source { display: inline-flex; width: fit-content; margin: -7px 0 16px; padding: 5px 10px; align-items: center; border: 1px solid #dfe5e2; border-radius: 999px; background: #f5f7f6; color: #55615b; font-size: .74rem; font-weight: 800; }
+#task-modal .task-calendar-meta .task-calendar-source { margin: 0; }
 #task-modal .task-calendar-source::before { width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: currentColor; content: ''; }
 #task-modal .task-calendar-source.is-device { border-color: #d7d5fb; background: #f1f0ff; color: #4f46e5; }
 #task-modal .task-calendar-source.is-kidsnote { border-color: #bfe9d6; background: #effaf4; color: #169669; }
 #task-modal .task-calendar-source.is-google { border-color: #cfe0f9; background: #eef5ff; color: #2b73d2; }
+#task-modal .task-google-sync-status { display: inline-flex; width: fit-content; padding: 5px 10px; align-items: center; border: 1px solid #cfe0f9; border-radius: 999px; background: #eef5ff; color: #2b73d2; font-size: .74rem; font-weight: 800; }
+#task-modal .task-google-sync-status::before { margin-right: 6px; content: '✓'; font-weight: 900; }
 .google-g { margin-right: 7px; color: #4285f4; font-family: Arial,sans-serif; font-size: 1.1em; font-weight: 900; }
 
 @media (min-width: 600px) {
@@ -1388,3 +1389,30 @@ input, textarea, select { font-size: 18px !important; }
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 5;
 }
+
+/* Calendar identity is the only event color theme. */
+.event-calendar-source {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  padding: 2px 7px;
+  align-items: center;
+  overflow: hidden;
+  border-radius: 999px;
+  font-size: .64rem;
+  font-weight: 800;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.event-calendar-source.is-device { background: #eeedff; color: #4338ca; }
+.event-calendar-source.is-kidsnote { background: #e9f9f1; color: #087a54; }
+.event-calendar-source.is-google { background: #eaf2ff; color: #2467c7; }
+.week-event-card .event-calendar-source,
+.day-event-card .event-calendar-source,
+.day-timeline-event-card .event-calendar-source {
+  margin-top: 3px;
+  background: rgba(255, 255, 255, .88);
+  color: #26312d;
+}
+#day-agenda-modal .event-calendar-source { align-self: flex-start; }
