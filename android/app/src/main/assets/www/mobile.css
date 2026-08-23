@@ -683,7 +683,9 @@ input, textarea, select { font-size: 18px !important; }
 #task-modal .task-calendar-source.is-kidsnote { border-color: #bfe9d6; background: #effaf4; color: #169669; }
 #task-modal .task-calendar-source.is-google { border-color: #cfe0f9; background: #eef5ff; color: #2b73d2; }
 #task-modal .task-google-sync-status { display: inline-flex; width: fit-content; padding: 5px 10px; align-items: center; border: 1px solid #cfe0f9; border-radius: 999px; background: #eef5ff; color: #2b73d2; font-size: .74rem; font-weight: 800; }
-#task-modal .task-google-sync-status::before { margin-right: 6px; content: '✓'; font-weight: 900; }
+#task-modal .task-google-sync-status.is-unsynced { border-color: #dfe5e2; background: #f5f7f6; color: #6d7872; }
+#task-modal .task-google-sync-status::before { margin-right: 6px; content: '○'; font-weight: 900; }
+#task-modal .task-google-sync-status.is-synced::before { content: '✓'; }
 .google-g { margin-right: 7px; color: #4285f4; font-family: Arial,sans-serif; font-size: 1.1em; font-weight: 900; }
 
 @media (min-width: 600px) {
@@ -1432,6 +1434,7 @@ input, textarea, select { font-size: 18px !important; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.event-google-sync-status.is-unsynced { background: #f0f3f1; color: #69746e; }
 .week-event-card .event-calendar-badges,
 .day-event-card .event-calendar-badges,
 .day-timeline-event-card .event-calendar-badges {

@@ -4,7 +4,7 @@ let currentView = 'month'; // 'month' or 'list'
 let isTransitioning = false;
 let todos = [];
 let searchQueryParams = '';
-let visibleScheduleTypes = new Set(['device', 'general', 'kidsnote', 'google']);
+let visibleScheduleTypes = new Set(['device', 'kidsnote']);
 let currentGoogleCalendarName = '이지 플래너';
 const holidayCache = new Map();
 const holidayRequests = new Map();
@@ -902,7 +902,7 @@ async function syncCurrentTaskToGoogle() {
   const todo = todos.find(item => String(item.id) === String(id));
   if (!todo || todo.readOnly || todo.scheduleType === 'google') return;
   btnSyncTaskGoogle.disabled = true;
-  btnSyncTaskGoogle.textContent = '동기화 중...';
+  btnSyncTaskGoogle.textContent = '연동 중...';
   try {
     let result;
     if (window.NativePlanner?.syncGoogleCalendarTodo) {
@@ -912,17 +912,17 @@ async function syncCurrentTaskToGoogle() {
     } else {
       const response = await fetch(`/api/google-calendar/sync/${encodeURIComponent(todo.id)}`, { method: 'POST' });
       result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Google 동기화에 실패했습니다.');
+      if (!response.ok) throw new Error(result.error || 'Google 연동에 실패했습니다.');
     }
     googleSyncedTodoIds.add(String(todo.id));
     todo.googleSynced = true;
     todo.googleSyncCalendarName = result.calendarName || currentGoogleCalendarName || 'Google 캘린더';
     updateTaskCalendarSource(todo);
-    btnSyncTaskGoogle.textContent = 'Google 다시 동기화';
-    showToast(`'${todo.title}' 일정을 Google에 동기화했습니다.`, 'success');
+    btnSyncTaskGoogle.textContent = 'Google 다시 연동';
+    showToast(`'${todo.title}' 일정을 Google에 연동했습니다.`, 'success');
     await fetchTodos();
   } catch (error) {
-    btnSyncTaskGoogle.textContent = googleSyncedTodoIds.has(String(todo.id)) ? 'Google 다시 동기화' : 'Google 동기화';
+    btnSyncTaskGoogle.textContent = googleSyncedTodoIds.has(String(todo.id)) ? 'Google 다시 연동' : 'Google 연동';
     showToast(error.message, 'danger');
   } finally {
     btnSyncTaskGoogle.disabled = false;
@@ -1025,26 +1025,23 @@ function navigateCalendarWithAnim(direction) {
 
 function getTodoScheduleType(todo) {
   if (todo.scheduleType === 'kidsnote') return 'kidsnote';
-  if (todo.googleEventId || todo.scheduleType === 'google' || todo.isGoogleCalendar) return 'google';
   return 'device';
 }
 
 const CALENDAR_SOURCE_COLORS = {
   device: '#4f46e5',
-  kidsnote: '#10b981',
-  google: '#4285f4'
+  kidsnote: '#10b981'
 };
 
 function getTodoCalendarLabel(todo) {
   const type = getTodoScheduleType(todo);
   if (type === 'kidsnote') return '키즈노트';
-  if (type === 'google') return `Google · ${todo.googleCalendarName || currentGoogleCalendarName || 'Google 캘린더'}`;
-  return '디바이스';
+  return '일반';
 }
 
 function getTodoCalendarColor(todo) {
   const type = getTodoScheduleType(todo);
-  return type === 'google' ? (todo.color || CALENDAR_SOURCE_COLORS.google) : CALENDAR_SOURCE_COLORS[type];
+  return CALENDAR_SOURCE_COLORS[type];
 }
 
 function appendTodoCalendarBadge(container, todo) {
@@ -1055,20 +1052,27 @@ function appendTodoCalendarBadge(container, todo) {
   badge.className = `event-calendar-source is-${type}`;
   badge.textContent = getTodoCalendarLabel(todo);
   badges.appendChild(badge);
-  if (isTodoGoogleSynced(todo)) {
-    const syncStatus = document.createElement('span');
-    syncStatus.className = 'event-google-sync-status';
-    syncStatus.textContent = 'Google 동기화됨 ✓';
-    syncStatus.title = todo.googleSyncCalendarName || currentGoogleCalendarName || 'Google 캘린더';
-    badges.appendChild(syncStatus);
-  }
+  const synced = isTodoGoogleSynced(todo);
+  const syncStatus = document.createElement('span');
+  syncStatus.className = `event-google-sync-status ${synced ? 'is-synced' : 'is-unsynced'}`;
+  syncStatus.textContent = synced ? 'Google 연동됨 ✓' : 'Google 연동 안 됨';
+  syncStatus.title = synced
+    ? (todo.googleSyncCalendarName || todo.googleCalendarName || currentGoogleCalendarName || 'Google 캘린더')
+    : '이 일정은 Google에 연동되지 않았습니다.';
+  badges.appendChild(syncStatus);
   container.appendChild(badges);
   return badge;
 }
 
 function isTodoGoogleSynced(todo) {
-  return getTodoScheduleType(todo) !== 'google'
-    && Boolean(todo.googleSynced || googleSyncedTodoIds.has(String(todo.id)));
+  return Boolean(
+    todo.googleEventId
+    || todo.googleSyncEventId
+    || todo.googleSynced
+    || todo.scheduleType === 'google'
+    || todo.isGoogleCalendar
+    || googleSyncedTodoIds.has(String(todo.id))
+  );
 }
 
 function updateTaskCalendarSource(todo) {
@@ -1081,7 +1085,7 @@ function updateTaskCalendarSource(todo) {
     source.className = 'task-calendar-source hidden';
     source.textContent = '';
     googleStatus?.classList.add('hidden');
-    if (googleStatus) googleStatus.textContent = 'Google 동기화됨';
+    if (googleStatus) googleStatus.textContent = 'Google 연동 안 됨';
     return;
   }
   calendarMeta?.classList.remove('hidden');
@@ -1090,10 +1094,12 @@ function updateTaskCalendarSource(todo) {
   source.textContent = getTodoCalendarLabel(todo);
   if (googleStatus) {
     const synced = isTodoGoogleSynced(todo);
-    googleStatus.classList.toggle('hidden', !synced);
-    googleStatus.textContent = synced
-      ? `Google 동기화됨 · ${todo.googleSyncCalendarName || currentGoogleCalendarName || 'Google 캘린더'}`
-      : 'Google 동기화됨';
+    googleStatus.classList.remove('hidden', 'is-synced', 'is-unsynced');
+    googleStatus.classList.add(synced ? 'is-synced' : 'is-unsynced');
+    googleStatus.textContent = synced ? 'Google 연동됨' : 'Google 연동 안 됨';
+    googleStatus.title = synced
+      ? (todo.googleSyncCalendarName || todo.googleCalendarName || currentGoogleCalendarName || 'Google 캘린더')
+      : '이 일정은 Google에 연동되지 않았습니다.';
   }
 }
 
@@ -1101,7 +1107,7 @@ function updateTaskCalendarSource(todo) {
 function getFilteredTodos() {
   return todos.filter(todo => {
     const type = getTodoScheduleType(todo);
-    if (!visibleScheduleTypes.has(type) && !(type === 'device' && visibleScheduleTypes.has('general'))) {
+    if (!visibleScheduleTypes.has(type)) {
       return false;
     }
 
@@ -1804,7 +1810,7 @@ function openModal(todo = null, customStart = null, customEnd = null, returnStat
     const isGoogleEvent = Boolean(todo.readOnly || todo.scheduleType === 'google' || todo.isGoogleCalendar);
     btnDeleteTask.classList.toggle('hidden', isGoogleEvent);
     btnSyncTaskGoogle?.classList.toggle('hidden', isGoogleEvent || !googleCalendarConnected || !googleCalendarSelected);
-    if (btnSyncTaskGoogle && !isGoogleEvent) btnSyncTaskGoogle.textContent = googleSyncedTodoIds.has(String(todo.id)) ? 'Google 다시 동기화' : 'Google 동기화';
+    if (btnSyncTaskGoogle && !isGoogleEvent) btnSyncTaskGoogle.textContent = googleSyncedTodoIds.has(String(todo.id)) ? 'Google 다시 연동' : 'Google 연동';
     taskForm.querySelectorAll('input:not(#task-id), textarea').forEach(field => { field.disabled = isGoogleEvent; });
     document.getElementById('btn-save-task').classList.toggle('hidden', isGoogleEvent);
   } else {

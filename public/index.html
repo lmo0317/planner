@@ -21,7 +21,7 @@
   <!-- Lucide Icons CDN -->
   <script src="vendor/lucide.min.js"></script>
   <!-- Tailwind/Vanilla CSS -->
-  <link rel="stylesheet" href="style.css?v=20260823-google-merge-safe-v5">
+  <link rel="stylesheet" href="style.css?v=20260823-simple-calendars-v6">
 </head>
 <body class="light-theme">
   <div class="glow-bg">
@@ -67,17 +67,12 @@
           <label class="schedule-type-option">
             <input type="checkbox" value="device" checked>
             <span class="schedule-type-dot device"></span>
-            <span class="schedule-type-name">디바이스</span>
+            <span class="schedule-type-name">일반</span>
           </label>
           <label class="schedule-type-option">
             <input type="checkbox" value="kidsnote" checked>
             <span class="schedule-type-dot kidsnote"></span>
             <span class="schedule-type-name">키즈노트</span>
-          </label>
-          <label class="schedule-type-option">
-            <input type="checkbox" value="google" checked>
-            <span class="schedule-type-dot google"></span>
-            <span class="schedule-type-name" id="google-filter-label-desktop">구글 (이지 플래너)</span>
           </label>
         </section>
 
@@ -261,7 +256,7 @@
       <h2 id="modal-title">새 일정 추가</h2>
       <div class="task-calendar-meta hidden">
         <div id="task-calendar-source" class="task-calendar-source hidden" aria-label="일정 캘린더"></div>
-        <div id="task-google-sync-status" class="task-google-sync-status hidden" aria-label="Google 동기화 상태">Google 동기화됨</div>
+        <div id="task-google-sync-status" class="task-google-sync-status hidden" aria-label="Google 연동 상태">Google 연동 안 됨</div>
       </div>
       <form id="task-form">
         <input type="hidden" id="task-id">
@@ -297,7 +292,7 @@
 
         <div class="modal-footer">
           <button type="button" id="btn-sync-task-google" class="btn btn-google-task hidden">
-            <i data-lucide="upload-cloud"></i> Google 동기화
+            <i data-lucide="upload-cloud"></i> Google 연동
           </button>
           <button type="button" id="btn-delete-task" class="btn btn-danger hidden">
             <i data-lucide="trash-2"></i> 삭제
@@ -474,6 +469,6 @@
   </div>
 
   <script src="offline-storage.js"></script>
-  <script src="app.js?v=20260823-google-merge-safe-v5"></script>
+  <script src="app.js?v=20260823-simple-calendars-v6"></script>
 </body>
 </html>
