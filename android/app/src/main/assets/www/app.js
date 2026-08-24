@@ -2044,9 +2044,11 @@ async function refreshKidsNoteSession() {
     const session = await response.json();
     kidsNoteSessionConnected = response.ok && session.connected === true;
     renderKidsNoteConnection(session);
+    return kidsNoteSessionConnected;
   } catch {
     kidsNoteSessionConnected = false;
     renderKidsNoteConnection();
+    return false;
   }
 }
 
@@ -2067,8 +2069,8 @@ async function loginKidsNoteAccount() {
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || '키즈노트 로그인에 실패했습니다.');
     kidsNotePassword.value = '';
-    kidsNoteSessionConnected = true;
-    renderKidsNoteConnection(result);
+    const sessionVerified = await refreshKidsNoteSession();
+    if (!sessionVerified) throw new Error('로그인은 완료됐지만 세션 쿠키를 확인하지 못했습니다. 다시 로그인해 주세요.');
     showToast('키즈노트 로그인 세션을 안전하게 저장했습니다.', 'success');
   } catch (error) {
     kidsNotePassword.value = '';

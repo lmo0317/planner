@@ -407,7 +407,7 @@
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 6000);
-        const fetchOptions = { ...options, signal: controller.signal };
+        const fetchOptions = { ...options, credentials: 'include', signal: controller.signal };
         const response = await originalFetch(remoteUrl, fetchOptions);
         clearTimeout(timeoutId);
         if (response.ok || response.status < 500) {

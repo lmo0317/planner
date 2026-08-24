@@ -258,7 +258,7 @@ function getKoreanHolidayModule() {
 }
 
 // Middleware
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
@@ -937,6 +937,12 @@ function writeKidsNoteSessions(sessions) {
   fs.renameSync(temporaryPath, KIDSNOTE_SESSION_FILE);
 }
 
+function getKidsNoteSessionCookieAttributes(req) {
+  const forwardedProtocol = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  const isHttps = req.secure || forwardedProtocol === 'https';
+  return `HttpOnly; SameSite=${isHttps ? 'None' : 'Lax'}; ${isHttps ? 'Secure; ' : ''}Path=/`;
+}
+
 function saveKidsNoteSession(childId, cookie, enrollment = '') {
   const sessions = readKidsNoteSessions();
   const now = Date.now();
@@ -988,7 +994,7 @@ function clearSavedKidsNoteSession(req, res) {
     delete sessions[token];
     writeKidsNoteSessions(sessions);
   }
-  res.setHeader('Set-Cookie', `${KIDSNOTE_SESSION_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`);
+  res.setHeader('Set-Cookie', `${KIDSNOTE_SESSION_COOKIE}=; ${getKidsNoteSessionCookieAttributes(req)}; Max-Age=0`);
 }
 
 function formatKidsNoteReport(report, index) {
@@ -1949,7 +1955,7 @@ app.post('/api/kidsnote/login', async (req, res) => {
     await fetchKidsNoteReports(login.childId, login.cookie, { maxPages: 1, enrollment: login.enrollment });
     const token = saveKidsNoteSession(login.childId, login.cookie, login.enrollment);
     res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('Set-Cookie', `${KIDSNOTE_SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(KIDSNOTE_SESSION_TTL_MS / 1000)}`);
+    res.setHeader('Set-Cookie', `${KIDSNOTE_SESSION_COOKIE}=${encodeURIComponent(token)}; ${getKidsNoteSessionCookieAttributes(req)}; Max-Age=${Math.floor(KIDSNOTE_SESSION_TTL_MS / 1000)}`);
     res.json({ connected: true, childId: login.childId, expiresAt: new Date(Date.now() + KIDSNOTE_SESSION_TTL_MS).toISOString() });
   } catch (error) {
     console.error('KidsNote login error:', error.message);
