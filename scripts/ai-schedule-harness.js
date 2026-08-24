@@ -12,6 +12,7 @@ function option(name) {
 const positionalBaseUrl = args.find(value => /^https?:\/\//.test(value));
 const baseUrl = (option('--base-url') || positionalBaseUrl || process.env.AI_SCHEDULE_BASE_URL || 'http://127.0.0.1:19000').replace(/\/$/, '');
 const selectedCase = option('--case');
+const serverFile = path.resolve(option('--server-file') || path.join(__dirname, '..', 'server.js'));
 const fixturePath = path.join(__dirname, '..', 'evals', 'ai-schedule-cases.json');
 const fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
 const cases = selectedCase
@@ -36,6 +37,11 @@ function validate(testCase, result) {
       errors.push(`${field} expected ${JSON.stringify(expected[field])}, received ${JSON.stringify(event[field])}`);
     }
   }
+  for (const fragment of expected.contentIncludes || []) {
+    if (!String(event.content || '').includes(fragment)) {
+      errors.push(`content expected to include ${JSON.stringify(fragment)}, received ${JSON.stringify(event.content || '')}`);
+    }
+  }
   if (Object.hasOwn(expected, 'clarification') && String(result.clarification || '') !== expected.clarification) {
     errors.push(`clarification expected ${JSON.stringify(expected.clarification)}, received ${JSON.stringify(result.clarification || '')}`);
   }
@@ -46,6 +52,20 @@ function validate(testCase, result) {
   let failed = 0;
   for (const testCase of cases) {
     try {
+      if (testCase.kind === 'kidsnote-dedup') {
+        const { deduplicateKidsNoteEvents } = require(serverFile);
+        const result = { events: deduplicateKidsNoteEvents(testCase.inputEvents || []) };
+        const errors = validate(testCase, result);
+        if (errors.length) {
+          failed++;
+          console.error(`FAIL ${testCase.id}`);
+          errors.forEach(error => console.error(`  - ${error}`));
+          console.error(`  actual: ${JSON.stringify(result)}`);
+        } else {
+          console.log(`PASS ${testCase.id}`);
+        }
+        continue;
+      }
       const response = await fetch(`${baseUrl}/api/todos/parse-natural-language`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

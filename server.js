@@ -620,6 +620,16 @@ function getKidsNoteEventType(value) {
   return match ? match[0] : '';
 }
 
+function isKidsNoteAssessmentEvent(event) {
+  return /(?:시험|테스트|평가|\btest\b|\bexam\b)/i.test(`${event?.title || ''} ${event?.content || ''} ${event?.evidence || ''}`);
+}
+
+function kidsNoteEventDetailsReferenceTitle(event, title) {
+  const normalizedTitle = normalizeCandidateText(title);
+  if (normalizedTitle.length < 4) return false;
+  return normalizeCandidateText(`${event?.content || ''} ${event?.evidence || ''}`).includes(normalizedTitle);
+}
+
 function diceSimilarity(left, right) {
   if (left === right) return 1;
   if (left.length < 2 || right.length < 2) return 0;
@@ -671,6 +681,14 @@ function areSameKidsNoteCandidate(left, right) {
   if (leftTitle === rightTitle) return true;
   if (leftIdentity && rightIdentity && leftIdentity === rightIdentity) return true;
 
+  // A detailed exam notice may use a generic Korean heading while naming the
+  // canonical English exam title in its body (for example, Quater Test and
+  // 2분기 시험안내). The cross-reference is stronger than title similarity.
+  if (isKidsNoteAssessmentEvent(left) && isKidsNoteAssessmentEvent(right) &&
+      (kidsNoteEventDetailsReferenceTitle(left, right.title) || kidsNoteEventDetailsReferenceTitle(right, left.title))) {
+    return true;
+  }
+
   // A shared event type on the exact same period is a duplicate even when one
   // notice uses a longer explanatory title (for example, an event and its notice).
   const leftEventType = getKidsNoteEventType(left.title);
@@ -696,6 +714,54 @@ function areSameKidsNoteCandidate(left, right) {
   return diceSimilarity(leftEvidence, rightEvidence) >= 0.82;
 }
 
+function chooseKidsNoteCanonicalTitle(left, right) {
+  const leftReferenced = kidsNoteEventDetailsReferenceTitle(right, left.title);
+  const rightReferenced = kidsNoteEventDetailsReferenceTitle(left, right.title);
+  if (leftReferenced !== rightReferenced) return leftReferenced ? left.title : right.title;
+
+  const noticePattern = /(안내|공지|알림|안내문|일정|기간|운영|실시|예정)/g;
+  const score = title => (String(title || '').match(noticePattern) || []).length * 100 + String(title || '').length;
+  return score(left.title) <= score(right.title) ? left.title : right.title;
+}
+
+function mergeKidsNoteTextParts(values, maxLength) {
+  const parts = [];
+  for (const value of values) {
+    const text = String(value || '').trim();
+    if (!text) continue;
+    const normalized = normalizeCandidateText(text);
+    if (!normalized) continue;
+    const containingIndex = parts.findIndex(part => normalizeCandidateText(part).includes(normalized));
+    if (containingIndex >= 0) continue;
+    const containedIndexes = parts
+      .map((part, index) => normalized.includes(normalizeCandidateText(part)) ? index : -1)
+      .filter(index => index >= 0);
+    for (const index of containedIndexes.reverse()) parts.splice(index, 1);
+    parts.push(text);
+  }
+  return parts.join('\n').slice(0, maxLength);
+}
+
+function mergeKidsNoteDuplicateEvents(left, right) {
+  const leftScore = getKidsNoteDateRange(left).days * 5000 + (Number(left.confidence) || 0) * 1000 + String(left.content || '').length + String(left.evidence || '').length;
+  const rightScore = getKidsNoteDateRange(right).days * 5000 + (Number(right.confidence) || 0) * 1000 + String(right.content || '').length + String(right.evidence || '').length;
+  const base = rightScore > leftScore ? right : left;
+  const title = chooseKidsNoteCanonicalTitle(left, right);
+  const alternateTitles = [left.title, right.title].filter(candidate => candidate !== title);
+  const priorityRank = { low: 0, medium: 1, high: 2 };
+  const priority = priorityRank[left.priority] >= priorityRank[right.priority] ? left.priority : right.priority;
+
+  return {
+    ...base,
+    title,
+    content: mergeKidsNoteTextParts([...alternateTitles, left.content, right.content], 1200),
+    evidence: mergeKidsNoteTextParts([left.evidence, right.evidence], 1000),
+    dateReason: String(left.dateReason || '').length >= String(right.dateReason || '').length ? left.dateReason : right.dateReason,
+    confidence: Math.max(Number(left.confidence) || 0, Number(right.confidence) || 0),
+    priority
+  };
+}
+
 function deduplicateKidsNoteEvents(events) {
   const unique = [];
   for (const event of events) {
@@ -704,11 +770,7 @@ function deduplicateKidsNoteEvents(events) {
       unique.push(event);
       continue;
     }
-    const existing = unique[duplicateIndex];
-    // Prefer the complete multi-day period over a boundary-day reminder.
-    const existingScore = getKidsNoteDateRange(existing).days * 5000 + existing.confidence * 1000 + existing.content.length + existing.evidence.length;
-    const eventScore = getKidsNoteDateRange(event).days * 5000 + event.confidence * 1000 + event.content.length + event.evidence.length;
-    if (eventScore > existingScore) unique[duplicateIndex] = event;
+    unique[duplicateIndex] = mergeKidsNoteDuplicateEvents(unique[duplicateIndex], event);
   }
   return unique.sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
 }
@@ -1257,6 +1319,7 @@ RULES:
 13. DATE_HINT is calculated deterministically from that report's written_at and is authoritative. Copy its resolved date exactly for the matching relative expression.
 14. Before returning JSON, perform a duplicate pass across every event you plan to emit. One real-world occurrence must be one event only: consolidate repeated notices, paraphrases, and a title plus its explanatory notice into a single candidate.
 15. Never emit two candidates for the same date range unless they are clearly different activities or obligations. Use a short canonical title that names the event itself, excluding notice words such as 안내, 공지, 일정, 기간, 운영, or 실시.
+16. When a generic exam notice heading names the same exam title in its body on the same date, merge them. Keep the canonical exam name as title and preserve the notice heading, evaluation scope, preparation items, and other details in content.
 
 Return JSON only.`;
 
