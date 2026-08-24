@@ -11,7 +11,7 @@
   <!-- Lucide Icons CDN -->
   <script src="vendor/lucide.min.js"></script>
   <!-- Dedicated Mobile CSS -->
-  <link rel="stylesheet" href="mobile.css?v=20260824-google-detail-button-v8">
+  <link rel="stylesheet" href="mobile.css?v=20260824-task-footer-v9">
 </head>
 <body class="light-theme">
   <div class="glow-bg">
@@ -278,12 +278,14 @@
           <button type="button" id="btn-sync-task-google" class="btn btn-google-task hidden">
             <i data-lucide="upload-cloud"></i> Google에 올리기
           </button>
-          <button type="button" id="btn-delete-task" class="btn btn-danger hidden">
-            <i data-lucide="trash-2"></i> 삭제
-          </button>
-          <div class="footer-right">
-            <button type="button" id="btn-cancel-modal" class="btn btn-secondary">취소</button>
-            <button type="submit" id="btn-save-task" class="btn btn-primary">저장</button>
+          <div class="task-footer-actions">
+            <button type="button" id="btn-delete-task" class="btn btn-danger hidden">
+              <i data-lucide="trash-2"></i> 삭제
+            </button>
+            <div class="footer-right">
+              <button type="button" id="btn-cancel-modal" class="btn btn-secondary">취소</button>
+              <button type="submit" id="btn-save-task" class="btn btn-primary">저장</button>
+            </div>
           </div>
         </div>
       </form>
@@ -453,6 +455,6 @@
   </div>
 
   <script src="offline-storage.js"></script>
-  <script src="mobile-app.js?v=20260824-google-detail-button-v8"></script>
+  <script src="mobile-app.js?v=20260824-task-footer-v9"></script>
 </body>
 </html>

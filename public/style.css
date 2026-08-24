@@ -466,6 +466,13 @@ body {
 #google-calendar-modal .modal-footer .btn-google .google-g { margin-right: 7px; color: #4285f4; font: 900 1.1em Arial, sans-serif; }
 #task-modal .btn-google-task { border: 1px solid #cbdcf6; background: #eef5ff; color: #2467c7; }
 #task-modal .btn-google-task:hover { background: #dfecff; }
+#task-modal .modal-footer { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+#task-modal #btn-sync-task-google { width: 100%; min-width: 0; min-height: 48px; justify-content: center; white-space: nowrap; }
+#task-modal .task-footer-actions { display: flex; width: 100%; min-width: 0; align-items: stretch; justify-content: space-between; gap: 9px; }
+#task-modal .task-footer-actions > #btn-delete-task { width: 96px; min-width: 96px; flex: 0 0 96px; }
+#task-modal .task-footer-actions > .footer-right { display: grid; min-width: 0; flex: 1 1 auto; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+#task-modal .task-footer-actions .btn { width: 100%; min-width: 0; min-height: 48px; padding-right: 14px; padding-left: 14px; justify-content: center; white-space: nowrap; }
+#task-modal .task-footer-actions > #btn-delete-task { width: 96px; min-width: 96px; }
 #task-modal .task-calendar-meta { display: flex; margin: -7px 0 18px; flex-wrap: wrap; align-items: center; gap: 7px; }
 #task-modal .task-calendar-meta.hidden { display: none; }
 #task-modal .task-calendar-source { display: inline-flex; width: fit-content; margin: -7px 0 18px; padding: 5px 10px; align-items: center; border: 1px solid #dfe5e2; border-radius: 999px; background: #f5f7f6; color: #55615b; font-size: .76rem; font-weight: 800; }
@@ -7187,6 +7194,7 @@ justify-content: flex-end;
   white-space: nowrap;
 }
 .event-google-sync-status.is-unsynced { background: #f0f3f1; color: #69746e; }
+
 .week-event-card .event-calendar-badges,
 .day-event-card .event-calendar-badges,
 .day-timeline-event-card .event-calendar-badges {

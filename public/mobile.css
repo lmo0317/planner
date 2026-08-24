@@ -673,6 +673,13 @@ input, textarea, select { font-size: 18px !important; }
 #google-calendar-modal .modal-footer .btn { width: 100% !important; min-width: 0 !important; padding: 11px 10px !important; font-size: .82rem !important; white-space: nowrap; }
 #google-calendar-modal .btn-google { border: 1px solid #d9e2ef; background: #fff; color: #25364c; box-shadow: 0 5px 16px rgba(42,75,112,.09); }
 #task-modal .btn-google-task { border: 1px solid #cbdcf6; background: #eef5ff; color: #2467c7; }
+#task-modal .modal-footer { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+#task-modal #btn-sync-task-google { width: 100%; min-width: 0; min-height: 48px; justify-content: center; white-space: nowrap; }
+#task-modal .task-footer-actions { display: flex; width: 100%; min-width: 0; align-items: stretch; justify-content: space-between; gap: 9px; }
+#task-modal .task-footer-actions > #btn-delete-task { width: 96px; min-width: 96px; flex: 0 0 96px; }
+#task-modal .task-footer-actions > .footer-right { display: grid; min-width: 0; flex: 1 1 auto; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
+#task-modal .task-footer-actions .btn { width: 100%; min-width: 0; min-height: 48px; padding-right: 12px; padding-left: 12px; justify-content: center; white-space: nowrap; }
+#task-modal .task-footer-actions > #btn-delete-task { width: 96px; min-width: 96px; }
 #task-modal .task-calendar-meta { display: flex; margin: -7px 0 16px; flex-wrap: wrap; align-items: center; gap: 7px; }
 #task-modal .task-calendar-meta.hidden { display: none; }
 #task-modal .task-calendar-source { display: inline-flex; width: fit-content; margin: -7px 0 16px; padding: 5px 10px; align-items: center; border: 1px solid #dfe5e2; border-radius: 999px; background: #f5f7f6; color: #55615b; font-size: .74rem; font-weight: 800; }
@@ -1432,6 +1439,7 @@ input, textarea, select { font-size: 18px !important; }
   white-space: nowrap;
 }
 .event-google-sync-status.is-unsynced { background: #f0f3f1; color: #69746e; }
+
 .week-event-card .event-calendar-badges,
 .day-event-card .event-calendar-badges,
 .day-timeline-event-card .event-calendar-badges {
