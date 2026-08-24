@@ -2477,6 +2477,14 @@ async function saveKidsNoteSchedules() {
 }
 
 // AI natural-language schedule flow
+function setAiScheduleAnalyzing(isAnalyzing) {
+  if (!btnAnalyzeAiSchedule) return;
+  btnAnalyzeAiSchedule.disabled = isAnalyzing;
+  btnAnalyzeAiSchedule.classList.toggle('is-loading', isAnalyzing);
+  btnAnalyzeAiSchedule.setAttribute('aria-busy', String(isAnalyzing));
+  btnAnalyzeAiSchedule.textContent = isAnalyzing ? 'AI 분석 중…' : '분석하기';
+}
+
 function setupAiScheduleEventListeners() {
   btnAiSchedule?.addEventListener('click', openAiSchedule);
   closeAiScheduleModal?.addEventListener('click', closeAiSchedule);
@@ -2535,7 +2543,7 @@ function resetAiScheduleModal() {
   aiScheduleClarification.classList.add('hidden');
   aiScheduleClarification.textContent = '';
   btnAnalyzeAiSchedule.classList.remove('hidden');
-  btnAnalyzeAiSchedule.disabled = false;
+  setAiScheduleAnalyzing(false);
   btnSaveAiSchedules.classList.add('hidden');
   btnSaveAiSchedules.disabled = false;
 }
@@ -2546,7 +2554,7 @@ function showAiScheduleInput() {
   aiSchedulePreview.classList.add('hidden');
   aiScheduleLoading.classList.add('hidden');
   btnAnalyzeAiSchedule.classList.remove('hidden');
-  btnAnalyzeAiSchedule.disabled = false;
+  setAiScheduleAnalyzing(false);
   btnSaveAiSchedules.classList.add('hidden');
 
   const aiScheduleDisplayTitle = document.getElementById('ai-schedule-display-title');
@@ -2569,7 +2577,7 @@ async function analyzeAiScheduleText() {
   aiScheduleInputPanel.classList.remove('hidden');
   aiSchedulePreview.classList.add('hidden');
   aiScheduleLoading.classList.remove('hidden');
-  btnAnalyzeAiSchedule.disabled = true;
+  setAiScheduleAnalyzing(true);
 
   const aiScheduleDisplayTitle = document.getElementById('ai-schedule-display-title');
   const aiMicBtn = document.querySelector('.ai-mic-btn');
@@ -2597,6 +2605,7 @@ async function analyzeAiScheduleText() {
     aiSchedulePreview.classList.remove('hidden');
     aiScheduleInputPanel.classList.add('compact');
     btnAnalyzeAiSchedule.classList.add('hidden');
+    setAiScheduleAnalyzing(false);
 
     if (result.clarification) {
       aiScheduleClarification.textContent = result.clarification;
@@ -2625,7 +2634,7 @@ async function analyzeAiScheduleText() {
     if (aiMicBtn) aiMicBtn.classList.remove('hidden');
 
     aiScheduleInputPanel.classList.remove('hidden');
-    btnAnalyzeAiSchedule.disabled = false;
+    setAiScheduleAnalyzing(false);
   }
 }
 
@@ -3098,7 +3107,25 @@ function renderWeek() {
     return { date, dateString, todos };
   });
   const isAllDayTodo = todo => todo.allDay || todo.startDate.substring(0, 10) < todo.endDate.substring(0, 10);
-  const maxAllDayRows = Math.max(0, ...dayEntries.map(({ todos }) => todos.filter(isAllDayTodo).length));
+  const weekStartString = formatDateString(startOfWeek);
+  const weekEndString = formatDateString(endOfWeek);
+  const dayOffset = dateString => Math.round((new Date(`${dateString}T00:00:00`) - new Date(`${weekStartString}T00:00:00`)) / 86400000);
+  const allDayLayouts = filteredTodos
+    .filter(todo => isAllDayTodo(todo) && todo.startDate.substring(0, 10) <= weekEndString && todo.endDate.substring(0, 10) >= weekStartString)
+    .map(todo => ({
+      todo,
+      startIndex: Math.max(0, dayOffset(todo.startDate.substring(0, 10))),
+      endIndex: Math.min(6, dayOffset(todo.endDate.substring(0, 10)))
+    }))
+    .sort((a, b) => a.startIndex - b.startIndex || b.endIndex - a.endIndex);
+  const allDayLaneEnds = [];
+  allDayLayouts.forEach(layout => {
+    let lane = allDayLaneEnds.findIndex(endIndex => layout.startIndex > endIndex);
+    if (lane < 0) lane = allDayLaneEnds.length;
+    layout.lane = lane;
+    allDayLaneEnds[lane] = layout.endIndex;
+  });
+  const maxAllDayRows = allDayLaneEnds.length;
   weekGrid.style.setProperty('--week-all-day-rows', maxAllDayRows);
 
   const timeAxis = document.createElement('aside');
@@ -3163,24 +3190,6 @@ function renderWeek() {
 
     const allDayContainer = document.createElement('div');
     allDayContainer.classList.add('week-all-day-container');
-    dayTodos.filter(isAllDayTodo).forEach(todo => {
-      const card = document.createElement('div');
-      card.classList.add('week-event-card', 'week-all-day-card');
-      if (todo.completed) card.classList.add('completed');
-      const calendarColor = getTodoCalendarColor(todo);
-      card.style.backgroundColor = calendarColor;
-      card.style.borderLeftColor = darkenColor(calendarColor, -30);
-      const titleEl = document.createElement('div');
-      titleEl.classList.add('week-event-title');
-      titleEl.textContent = todo.title;
-      card.appendChild(titleEl);
-      appendTodoCalendarBadge(card, todo);
-      card.addEventListener('click', (e) => {
-        e.stopPropagation();
-        openModal(todo);
-      });
-      allDayContainer.appendChild(card);
-    });
     col.appendChild(allDayContainer);
 
     const eventsContainer = document.createElement('div');
@@ -3202,7 +3211,6 @@ function renderWeek() {
       titleEl.classList.add('week-event-title');
       titleEl.textContent = todo.title;
       card.appendChild(titleEl);
-      appendTodoCalendarBadge(card, todo);
       card.addEventListener('click', (e) => {
         e.stopPropagation();
         openModal(todo);
@@ -3220,6 +3228,36 @@ function renderWeek() {
 
     weekGrid.appendChild(col);
   });
+
+  const spanningLayer = document.createElement('div');
+  spanningLayer.classList.add('week-spanning-events');
+  allDayLayouts.forEach(({ todo, startIndex, endIndex, lane }) => {
+    const card = document.createElement('div');
+    card.classList.add('week-event-card', 'week-all-day-card', 'week-spanning-card');
+    if (todo.completed) card.classList.add('completed');
+    if (todo.startDate.substring(0, 10) < weekStartString) card.classList.add('continues-before');
+    if (todo.endDate.substring(0, 10) > weekEndString) card.classList.add('continues-after');
+    const calendarColor = getTodoCalendarColor(todo);
+    card.style.backgroundColor = calendarColor;
+    card.style.borderLeftColor = darkenColor(calendarColor, -30);
+    card.style.gridColumn = `${startIndex + 1} / span ${endIndex - startIndex + 1}`;
+    card.style.gridRow = String(lane + 1);
+    card.title = todo.title;
+    const titleEl = document.createElement('div');
+    titleEl.classList.add('week-event-title');
+    titleEl.textContent = todo.title;
+    card.appendChild(titleEl);
+    card.addEventListener('click', event => {
+      event.stopPropagation();
+      openModal(todo);
+    });
+    spanningLayer.appendChild(card);
+  });
+  const spanningHost = weekGrid.querySelector('.week-all-day-container');
+  if (spanningHost) {
+    spanningHost.classList.add('week-all-day-host');
+    spanningHost.appendChild(spanningLayer);
+  }
 
   lucide.createIcons();
 

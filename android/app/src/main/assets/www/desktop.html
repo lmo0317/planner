@@ -21,7 +21,7 @@
   <!-- Lucide Icons CDN -->
   <script src="vendor/lucide.min.js"></script>
   <!-- Tailwind/Vanilla CSS -->
-  <link rel="stylesheet" href="style.css?v=20260824-task-footer-v9">
+  <link rel="stylesheet" href="style.css?v=20260825-week-clean-v10">
 </head>
 <body class="light-theme">
   <div class="glow-bg">
@@ -378,7 +378,7 @@
       <h2>AI 일정 추가</h2>
       <p class="ai-schedule-guide">자연어 텍스트를 분석하여 일정 제목, 날짜, 시간, 카테고리를 자동으로 입력합니다.</p>
 
-      <div id="ai-input-panel">
+      <div id="ai-schedule-input-panel">
         <div class="form-group">
           <label for="ai-schedule-text" class="ai-input-label">
             <span>자연어로 일정 입력</span>
@@ -393,7 +393,7 @@
         </div>
       </div>
 
-      <div id="ai-loading" class="import-state-panel hidden">
+      <div id="ai-schedule-loading" class="import-state-panel hidden" role="status" aria-live="polite">
         <div class="spinner"></div>
         <p>AI가 일정을 분석하고 있습니다...</p>
       </div>
@@ -471,6 +471,6 @@
   </div>
 
   <script src="offline-storage.js"></script>
-  <script src="app.js?v=20260824-task-footer-v9"></script>
+  <script src="app.js?v=20260825-week-clean-v10"></script>
 </body>
 </html>
