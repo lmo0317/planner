@@ -440,6 +440,27 @@ function buildNaturalDateHints(text, baseDate) {
   return hints.length ? `[DATE_HINT: ${hints.join(', ')}]` : '';
 }
 
+function hasNaturalTimeExpression(text) {
+  return /(?:오전|오후|아침|점심|저녁|밤|새벽)?\s*(?:[01]?\d|2[0-3])\s*(?::\s*[0-5]\d|시(?:\s*[0-5]?\d\s*분)?)/.test(String(text || ''));
+}
+
+function isNaturalSchedulePlaceholder(value) {
+  return /^(?:미정|없음|제목\s*없음|일정|스케줄|unknown|untitled|none|null)$/i.test(String(value || '').trim());
+}
+
+function deriveNaturalScheduleTitle(text) {
+  const title = String(text || '')
+    .replace(/\s*\[DATE_HINT:[^\]]+\]/g, ' ')
+    .replace(/(?:이번\s*주|다음\s*주|다다음\s*주)\s*(?:월요일|화요일|수요일|목요일|금요일|토요일|일요일)/g, ' ')
+    .replace(/(?:오늘|내일|모레|글피|월요일|화요일|수요일|목요일|금요일|토요일|일요일)/g, ' ')
+    .replace(/(?:(?:\d{4})\s*[년./-]\s*)?\d{1,2}\s*(?:월|[./-])\s*\d{1,2}\s*(?:일)?/g, ' ')
+    .replace(/(?:오전|오후|아침|점심|저녁|밤|새벽)?\s*(?:[01]?\d|2[0-3])\s*(?::\s*[0-5]\d|시(?:\s*[0-5]?\d\s*분)?)/g, ' ')
+    .replace(/(?:부터|까지|에)(?=\s|$)/g, ' ')
+    .replace(/[\s,./~_-]+/g, ' ')
+    .trim();
+  return title || '일정';
+}
+
 function resolveKidsNoteDateExpressions(text, writtenAt) {
   const baseMatch = String(writtenAt || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (!baseMatch) return [];
@@ -2025,6 +2046,7 @@ RULES:
 12. dateReason must be a short Korean explanation of how the date and time were resolved, or that the event was classified as all-day because no time was stated.
 13. confidence is 0 to 1. Use below 0.65 for ambiguity and omit that event.
 14. A date range such as "월요일부터 금요일까지", "7월 20일~24일", or "3일 동안" is one period event. Return one event whose startDate is the first day and endDate is the last day. Never split it into one event per day.
+15. title must contain the actual activity from the user's text. Never return placeholders such as "미정", "일정", "없음", or "Untitled" when an activity like PT, 회의, 축구, 치료, or 약속 is present.
 
 Return one JSON object containing events and clarification. Return no prose or markdown.`;
 
@@ -2084,9 +2106,13 @@ Return one JSON object containing events and clarification. Return no prose or m
 
     const data = await response.json();
     const parsed = JSON.parse(data.choices[0].message.content.trim());
+    const fallbackTitle = deriveNaturalScheduleTitle(text.trim());
+    const hasTimeExpression = hasNaturalTimeExpression(text);
     const normalizedEvents = (parsed.events || [])
       .map((event, index) => normalizeExtractedEvent({
         ...event,
+        title: isNaturalSchedulePlaceholder(event.title) ? fallbackTitle : event.title,
+        content: isNaturalSchedulePlaceholder(event.content) ? '' : event.content,
         status: 'active',
         candidateId: index + 1,
         evidence: text.trim()
