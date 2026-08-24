@@ -60,6 +60,36 @@
         "contentIncludes": ["2분기 시험안내", "평가 범위"]
       },
       "regression": "The same exam appeared twice; the canonical event title and the more detailed notice content must be merged."
+    },
+    {
+      "id": "kidsnote-quarter-test-full-stack",
+      "kind": "kidsnote-import",
+      "reportedAt": "2026-08-25",
+      "input": "8월 31일 Quater Test와 같은 시험인 2분기 시험안내를 하나로 합치고, 제목은 Quater Test, 내용에는 2분기 시험안내와 평가 범위를 보존한다.",
+      "baseDate": "2026-08-25T12:53:00+09:00",
+      "inputReports": [
+        {
+          "id": "eval-quarter-1",
+          "title": "Quater Test",
+          "content": "8월 31일 Quater Test를 실시합니다.",
+          "date_written": "2026-08-20T09:00:00+09:00"
+        },
+        {
+          "id": "eval-quarter-2",
+          "title": "2분기 시험안내",
+          "content": "8월 31일 Quater Test를 실시합니다. 평가 범위: Unit 1~4.",
+          "date_written": "2026-08-20T09:05:00+09:00"
+        }
+      ],
+      "expected": {
+        "eventCount": 1,
+        "title": "Quater Test",
+        "startDate": "2026-08-31T00:00:00+09:00",
+        "endDate": "2026-08-31T23:59:59+09:00",
+        "allDay": true,
+        "contentIncludes": ["2분기 시험안내", "평가 범위"]
+      },
+      "regression": "The full KidsNote import collapsed the duplicate but rewrote the canonical title to 분기 시험 and dropped the detailed notice heading."
     }
   ]
 }

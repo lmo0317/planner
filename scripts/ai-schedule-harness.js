@@ -66,6 +66,27 @@ function validate(testCase, result) {
         }
         continue;
       }
+      if (testCase.kind === 'kidsnote-import') {
+        const response = await fetch(`${baseUrl}/api/kidsnote/import`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: 'json', data: testCase.inputReports || [], baseDate: testCase.baseDate }),
+          signal: AbortSignal.timeout(90000)
+        });
+        const body = await response.text();
+        if (!response.ok) throw new Error(`HTTP ${response.status}: ${body}`);
+        const result = JSON.parse(body);
+        const errors = validate(testCase, result);
+        if (errors.length) {
+          failed++;
+          console.error(`FAIL ${testCase.id}`);
+          errors.forEach(error => console.error(`  - ${error}`));
+          console.error(`  actual: ${JSON.stringify(result)}`);
+        } else {
+          console.log(`PASS ${testCase.id}`);
+        }
+        continue;
+      }
       const response = await fetch(`${baseUrl}/api/todos/parse-natural-language`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

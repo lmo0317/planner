@@ -1226,6 +1226,62 @@ function normalizeKidsNoteEvents(rawEvents, referenceDate) {
     .filter(Boolean));
 }
 
+function getKidsNoteCanonicalAssessmentTitles(report) {
+  const text = `${report?.title || ''}\n${report?.content || ''}`;
+  const titles = [];
+  const seen = new Set();
+  const pattern = /\b([A-Za-z][A-Za-z0-9'-]*(?:\s+[A-Za-z][A-Za-z0-9'-]*){0,2}\s+(?:Test|Exam))\b/gi;
+  for (const match of text.matchAll(pattern)) {
+    const title = match[1].replace(/\s+/g, ' ').trim();
+    const normalized = normalizeCandidateText(title);
+    if (normalized && !seen.has(normalized)) {
+      seen.add(normalized);
+      titles.push(title);
+    }
+  }
+  return titles;
+}
+
+function enrichKidsNoteAssessmentEvents(events, reports) {
+  const assessmentSources = [];
+  for (const report of reports || []) {
+    const dates = resolveKidsNoteDateExpressions(`${report.title || ''}\n${report.content || ''}`, report.writtenAt);
+    for (const title of getKidsNoteCanonicalAssessmentTitles(report)) {
+      for (const { date } of dates) assessmentSources.push({ date, title, report });
+    }
+  }
+
+  const enriched = (events || []).map(event => {
+    if (!isKidsNoteAssessmentEvent(event)) return event;
+    const eventDate = String(event.startDate || '').slice(0, 10);
+    const sources = assessmentSources.filter(source => source.date === eventDate);
+    const distinctTitles = [...new Map(sources.map(source => [normalizeCandidateText(source.title), source.title])).values()];
+    if (distinctTitles.length !== 1) return event;
+
+    const canonicalTitle = distinctTitles[0];
+    const canonicalIdentity = normalizeCandidateText(canonicalTitle);
+    const detailedReports = (reports || []).filter(report => {
+      const reportDates = resolveKidsNoteDateExpressions(`${report.title || ''}\n${report.content || ''}`, report.writtenAt);
+      const reportText = normalizeCandidateText(`${report.title || ''} ${report.content || ''}`);
+      return reportDates.some(({ date }) => date === eventDate) && reportText.includes(canonicalIdentity);
+    });
+    if (!detailedReports.length) return event;
+
+    const detailValues = [];
+    for (const report of detailedReports) {
+      if (normalizeCandidateText(report.title) !== canonicalIdentity) detailValues.push(report.title);
+      detailValues.push(report.content);
+    }
+    return {
+      ...event,
+      title: canonicalTitle,
+      content: mergeKidsNoteTextParts([event.content, ...detailValues], 1200),
+      evidence: mergeKidsNoteTextParts([event.evidence, ...detailedReports.map(report => report.content)], 1000)
+    };
+  });
+  return deduplicateKidsNoteEvents(enriched);
+}
+
 const KIDSNOTE_ACTION_KEYWORD_REGEX = /(준비물|지참|제출|신청|마감|납부|입금|행사|견학|소풍|체험|방학|개학|휴원|휴관|수업|상담|검사|검진|예방접종|입학|졸업|발표회|운동회|오리엔테이션|설명회|참석|등원|하원|예약|방문|촬영|생일|파티|공연|관람|모임)/i;
 
 function buildKidsNoteFallbackEvents(formattedReports, referenceDate) {
@@ -1352,9 +1408,10 @@ Return JSON only.`;
       console.warn(`KidsNote AI chunk failed (${failedChunks}/${chunks.length}):`, error.message);
     }
     if (typeof options.onProgress === 'function') {
-      const progressEvents = rawEvents.length
+      const normalizedProgressEvents = rawEvents.length
         ? normalizeKidsNoteEvents(rawEvents, referenceDate)
         : normalizeKidsNoteEvents(fallbackEvents, referenceDate);
+      const progressEvents = enrichKidsNoteAssessmentEvents(normalizedProgressEvents, formatted);
       options.onProgress({
         events: progressEvents,
         reportCount: reports.length,
@@ -1368,7 +1425,7 @@ Return JSON only.`;
 
   if (failedChunks === chunks.length && !fallbackEvents.length) throw new Error('AI가 키즈노트 일정 결과를 완성하지 못했습니다. 다시 시도해 주세요.');
 
-  const events = normalizeKidsNoteEvents([...rawEvents, ...fallbackEvents], referenceDate);
+  const events = enrichKidsNoteAssessmentEvents(normalizeKidsNoteEvents([...rawEvents, ...fallbackEvents], referenceDate), formatted);
   return { events, reportCount: reports.length, analyzedCount };
 }
 
