@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "description": "User-reported AI schedule parsing regressions. Append new failures; do not replace prior cases.",
+  "cases": [
+    {
+      "id": "qualified-weekday-time-pt-title",
+      "reportedAt": "2026-08-25",
+      "input": "이번주 토요일 10시 PT",
+      "baseDate": "2026-08-25T12:30:00+09:00",
+      "expected": {
+        "eventCount": 1,
+        "title": "PT",
+        "startDate": "2026-08-29T10:00:00+09:00",
+        "endDate": "2026-08-29T11:00:00+09:00",
+        "allDay": false,
+        "clarification": ""
+      },
+      "regression": "The model returned the correct date and time but used the placeholder title 미정."
+    }
+  ]
+}
