@@ -814,6 +814,15 @@ async function syncCurrentTaskToGoogle() {
   const id = document.getElementById('task-id').value;
   const todo = todos.find(item => String(item.id) === String(id));
   if (!todo || todo.readOnly || todo.scheduleType === 'google') return;
+  if (!googleCalendarConnected || !googleCalendarSelected) {
+    await refreshGoogleCalendarStatus();
+    if (!googleCalendarConnected || !googleCalendarSelected) {
+      closeModal({ restorePrevious: false });
+      googleCalendarModal?.classList.add('open');
+      showToast(googleCalendarConnected ? '동기화할 Google 캘린더를 선택해 주세요.' : '먼저 Google 계정을 연결해 주세요.', 'info');
+      return;
+    }
+  }
   btnSyncTaskGoogle.disabled = true;
   btnSyncTaskGoogle.textContent = '연동 중...';
   try {
@@ -1722,8 +1731,12 @@ function openModal(todo = null, customStart = null, customEnd = null, returnStat
 
     const isGoogleEvent = Boolean(todo.readOnly || todo.scheduleType === 'google' || todo.isGoogleCalendar);
     btnDeleteTask.classList.toggle('hidden', isGoogleEvent);
-    btnSyncTaskGoogle?.classList.toggle('hidden', isGoogleEvent || !googleCalendarConnected || !googleCalendarSelected);
-    if (btnSyncTaskGoogle && !isGoogleEvent) btnSyncTaskGoogle.textContent = googleSyncedTodoIds.has(String(todo.id)) ? 'Google에 수정 반영' : 'Google에 올리기';
+    btnSyncTaskGoogle?.classList.toggle('hidden', isGoogleEvent);
+    if (btnSyncTaskGoogle && !isGoogleEvent) {
+      btnSyncTaskGoogle.textContent = !googleCalendarConnected
+        ? 'Google 연결 설정'
+        : (!googleCalendarSelected ? '동기화 캘린더 선택' : (googleSyncedTodoIds.has(String(todo.id)) ? 'Google에 수정 반영' : 'Google에 올리기'));
+    }
     taskForm.querySelectorAll('input:not(#task-id), textarea').forEach(field => { field.disabled = isGoogleEvent; });
     document.getElementById('btn-save-task').classList.toggle('hidden', isGoogleEvent);
   } else {
