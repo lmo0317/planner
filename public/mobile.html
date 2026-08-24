@@ -11,7 +11,7 @@
   <!-- Lucide Icons CDN -->
   <script src="vendor/lucide.min.js"></script>
   <!-- Dedicated Mobile CSS -->
-  <link rel="stylesheet" href="mobile.css?v=20260823-simple-calendars-v6">
+  <link rel="stylesheet" href="mobile.css?v=20260824-google-outbound-v7">
 </head>
 <body class="light-theme">
   <div class="glow-bg">
@@ -276,7 +276,7 @@
 
         <div class="modal-footer">
           <button type="button" id="btn-sync-task-google" class="btn btn-google-task hidden">
-            <i data-lucide="upload-cloud"></i> Google 연동
+            <i data-lucide="upload-cloud"></i> Google에 올리기
           </button>
           <button type="button" id="btn-delete-task" class="btn btn-danger hidden">
             <i data-lucide="trash-2"></i> 삭제
@@ -412,7 +412,7 @@
         <div><strong id="google-calendar-status-title">확인 중</strong><p id="google-calendar-status" class="google-calendar-status">연결 상태를 확인하고 있습니다.</p></div>
       </div>
       <div id="google-calendar-target-panel" class="google-calendar-target-panel hidden">
-        <label for="google-calendar-target">표시하고 동기화할 캘린더</label>
+        <label for="google-calendar-target">플래너 일정을 동기화할 캘린더</label>
         <div class="google-calendar-target-controls">
           <select id="google-calendar-target"></select>
           <button type="button" id="btn-save-google-calendar-target" class="btn btn-primary">저장</button>
@@ -453,6 +453,6 @@
   </div>
 
   <script src="offline-storage.js"></script>
-  <script src="mobile-app.js?v=20260823-simple-calendars-v6"></script>
+  <script src="mobile-app.js?v=20260824-google-outbound-v7"></script>
 </body>
 </html>

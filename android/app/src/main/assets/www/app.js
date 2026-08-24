@@ -358,30 +358,7 @@ function setupGoogleCalendarEventListeners() {
   });
 }
 
-window.handleNativeGoogleSyncResult = async (success, message, importedTodosJson) => {
-  if (success && importedTodosJson) {
-    try {
-      const importedTodos = typeof importedTodosJson === 'string' ? JSON.parse(importedTodosJson) : importedTodosJson;
-      if (Array.isArray(importedTodos) && importedTodos.length > 0) {
-        let hasNew = false;
-        for (const newTodo of importedTodos) {
-          if (!todos.some(t => String(t.id) === String(newTodo.id) || (t.googleEventId && t.googleEventId === newTodo.googleEventId))) {
-            todos.push(newTodo);
-            hasNew = true;
-            fetch('/api/todos', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(newTodo)
-            }).catch(err => console.warn('Failed to persist imported todo:', err));
-          }
-        }
-        if (hasNew) {
-          render();
-          updateStats();
-        }
-      }
-    } catch (e) { console.error('Failed to process imported Google todos:', e); }
-  }
+window.handleNativeGoogleSyncResult = async (success, message) => {
   showToast(message || (success ? 'Google Calendar 동기화가 완료되었습니다.' : 'Google Calendar 동기화에 실패했습니다.'), success ? 'success' : 'danger');
 };
 
@@ -434,6 +411,7 @@ async function refreshGoogleCalendarStatus() {
       const nativeStatus = JSON.parse(window.NativePlanner.getGoogleCalendarStatus());
       googleCalendarConnected = Boolean(nativeStatus.connected);
       googleCalendarSelected = Boolean(nativeStatus.calendarId);
+      googleSyncedTodoIds = new Set((nativeStatus.syncedTodoIds || []).map(String));
       if (nativeStatus.calendarName) {
         updateGoogleFilterLabel(nativeStatus.calendarName);
       }
@@ -442,7 +420,7 @@ async function refreshGoogleCalendarStatus() {
         nativeStatus.connected ? 'connected' : 'disconnected',
         nativeStatus.connected ? '연결됨' : 'Google 계정 연결',
         nativeStatus.connected
-          ? (nativeStatus.calendarId ? `${nativeStatus.email || 'Google 계정'} · ‘${nativeStatus.calendarName || 'Google'}’ 캘린더를 표시합니다.` : `${nativeStatus.email || 'Google 계정'} · 사용할 캘린더를 선택해 주세요.`)
+          ? (nativeStatus.calendarId ? `${nativeStatus.email || 'Google 계정'} · 플래너 일정을 ‘${nativeStatus.calendarName || 'Google'}’ 캘린더에 동기화합니다.` : `${nativeStatus.email || 'Google 계정'} · 동기화할 캘린더를 선택해 주세요.`)
           : '플래너 일정을 Google 캘린더에서도 볼 수 있습니다.'
       );
       btnConnectGoogleCalendar.textContent = nativeStatus.connected ? 'Google 계정 변경' : 'Google 계정 연결';
@@ -477,7 +455,7 @@ async function refreshGoogleCalendarStatus() {
     btnConnectGoogleCalendar.disabled = false;
     if (status.connected) {
       if (status.sharingReady) {
-        setGoogleCalendarModalStatus('connected', '연결됨', status.calendarId ? `${status.account?.email || 'Google 계정'} · ‘${status.calendarName}’ 캘린더를 표시합니다.` : `${status.account?.email || 'Google 계정'} · 사용할 캘린더를 선택해 주세요.`);
+        setGoogleCalendarModalStatus('connected', '연결됨', status.calendarId ? `${status.account?.email || 'Google 계정'} · 플래너 일정을 ‘${status.calendarName}’ 캘린더에 동기화합니다.` : `${status.account?.email || 'Google 계정'} · 동기화할 캘린더를 선택해 주세요.`);
         btnConnectGoogleCalendar?.classList.add('hidden');
         googleCalendarTargetPanel?.classList.remove('hidden');
         await loadGoogleCalendarTargets(status.calendarId);
@@ -815,21 +793,7 @@ async function fetchTodos() {
   try {
     const response = await fetch('/api/todos');
     if (!response.ok) throw new Error('서버 데이터를 불러오지 못했습니다.');
-    const plannerTodos = await response.json();
-    let googleTodos = [];
-    try {
-      if (window.NativePlanner?.getGoogleCalendarEvents) {
-        const raw = window.NativePlanner.getGoogleCalendarEvents();
-        const result = typeof raw === 'string' ? JSON.parse(raw) : raw;
-        if (!result.error) googleTodos = result.events || [];
-      } else {
-        const googleResponse = await fetch('/api/google-calendar/events');
-        if (googleResponse.ok) googleTodos = (await googleResponse.json()).events || [];
-      }
-    } catch (error) {
-      console.warn('Google calendar events are unavailable:', error.message);
-    }
-    todos = mergePlannerAndGoogleTodos(plannerTodos, googleTodos);
+    todos = (await response.json()).filter(todo => !isGoogleImportedTodo(todo));
     render();
     updateStats();
   } catch (error) {
@@ -837,64 +801,13 @@ async function fetchTodos() {
   }
 }
 
-function normalizeMirrorTitle(value) {
-  return String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
-}
-
-function mirrorDateTimesMatch(plannerValue, googleValue, allDay) {
-  if (!plannerValue || !googleValue) return false;
-  if (allDay) return String(plannerValue).slice(0, 10) === String(googleValue).slice(0, 10);
-  const plannerTime = new Date(plannerValue).getTime();
-  const googleTime = new Date(googleValue).getTime();
-  if (Number.isNaN(plannerTime) || Number.isNaN(googleTime)) {
-    return String(plannerValue).slice(0, 16) === String(googleValue).slice(0, 16);
-  }
-  return Math.abs(plannerTime - googleTime) < 60000;
-}
-
-function areGoogleMirrorTodosEquivalent(plannerTodo, googleTodo) {
-  if (normalizeMirrorTitle(plannerTodo.title) !== normalizeMirrorTitle(googleTodo.title)) return false;
-  const plannerAllDay = Boolean(plannerTodo.allDay);
-  const googleAllDay = Boolean(googleTodo.allDay);
-  if (plannerAllDay !== googleAllDay) return false;
-  return mirrorDateTimesMatch(plannerTodo.startDate, googleTodo.startDate, plannerAllDay)
-    && mirrorDateTimesMatch(plannerTodo.endDate, googleTodo.endDate, plannerAllDay);
-}
-
-function mergePlannerAndGoogleTodos(plannerTodos, googleTodos) {
-  const plannerById = new Map(plannerTodos.map(todo => [String(todo.id), todo]));
-  const plannerByGoogleEventId = new Map(plannerTodos
-    .filter(todo => todo.googleEventId)
-    .map(todo => [String(todo.googleEventId), todo]));
-  const mirrorsByPlannerId = new Map();
-  const googleOnlyTodos = [];
-
-  googleTodos.forEach(googleTodo => {
-    const plannerTodoId = googleTodo.plannerTodoId == null ? '' : String(googleTodo.plannerTodoId);
-    const plannerTodo = plannerById.get(plannerTodoId);
-    if (plannerTodo && areGoogleMirrorTodosEquivalent(plannerTodo, googleTodo)) {
-      mirrorsByPlannerId.set(plannerTodoId, googleTodo);
-      googleSyncedTodoIds.add(plannerTodoId);
-      return;
-    }
-    const plannerGoogleTodo = plannerByGoogleEventId.get(String(googleTodo.googleEventId || ''));
-    if (plannerGoogleTodo && areGoogleMirrorTodosEquivalent(plannerGoogleTodo, googleTodo)) return;
-    googleOnlyTodos.push(googleTodo);
-  });
-
-  const mergedPlannerTodos = plannerTodos.map(todo => {
-    const todoId = String(todo.id);
-    const mirror = mirrorsByPlannerId.get(todoId);
-    if (!mirror && !googleSyncedTodoIds.has(todoId)) return todo;
-    return {
-      ...todo,
-      googleSynced: true,
-      googleSyncEventId: mirror?.googleEventId || null,
-      googleSyncCalendarName: mirror?.googleCalendarName || currentGoogleCalendarName || 'Google 캘린더'
-    };
-  });
-
-  return [...mergedPlannerTodos, ...googleOnlyTodos];
+function isGoogleImportedTodo(todo) {
+  return Boolean(
+    todo?.readOnly
+    || todo?.scheduleType === 'google'
+    || todo?.isGoogleCalendar
+    || (todo?.category === 'google' && todo?.googleEventId)
+  );
 }
 
 async function syncCurrentTaskToGoogle() {
@@ -918,11 +831,11 @@ async function syncCurrentTaskToGoogle() {
     todo.googleSynced = true;
     todo.googleSyncCalendarName = result.calendarName || currentGoogleCalendarName || 'Google 캘린더';
     updateTaskCalendarSource(todo);
-    btnSyncTaskGoogle.textContent = 'Google 다시 연동';
-    showToast(`'${todo.title}' 일정을 Google에 연동했습니다.`, 'success');
+    btnSyncTaskGoogle.textContent = 'Google에 수정 반영';
+    showToast(`'${todo.title}' 일정을 Google에 동기화했습니다.`, 'success');
     await fetchTodos();
   } catch (error) {
-    btnSyncTaskGoogle.textContent = googleSyncedTodoIds.has(String(todo.id)) ? 'Google 다시 연동' : 'Google 연동';
+    btnSyncTaskGoogle.textContent = googleSyncedTodoIds.has(String(todo.id)) ? 'Google에 수정 반영' : 'Google에 올리기';
     showToast(error.message, 'danger');
   } finally {
     btnSyncTaskGoogle.disabled = false;
@@ -1810,7 +1723,7 @@ function openModal(todo = null, customStart = null, customEnd = null, returnStat
     const isGoogleEvent = Boolean(todo.readOnly || todo.scheduleType === 'google' || todo.isGoogleCalendar);
     btnDeleteTask.classList.toggle('hidden', isGoogleEvent);
     btnSyncTaskGoogle?.classList.toggle('hidden', isGoogleEvent || !googleCalendarConnected || !googleCalendarSelected);
-    if (btnSyncTaskGoogle && !isGoogleEvent) btnSyncTaskGoogle.textContent = googleSyncedTodoIds.has(String(todo.id)) ? 'Google 다시 연동' : 'Google 연동';
+    if (btnSyncTaskGoogle && !isGoogleEvent) btnSyncTaskGoogle.textContent = googleSyncedTodoIds.has(String(todo.id)) ? 'Google에 수정 반영' : 'Google에 올리기';
     taskForm.querySelectorAll('input:not(#task-id), textarea').forEach(field => { field.disabled = isGoogleEvent; });
     document.getElementById('btn-save-task').classList.toggle('hidden', isGoogleEvent);
   } else {
@@ -1896,7 +1809,24 @@ async function handleFormSubmit(e) {
     if (id) {
       const idx = todos.findIndex(t => t.id === id);
       todos[idx] = result;
-      showToast('일정이 수정되었습니다.', 'success');
+      if (googleSyncedTodoIds.has(String(id)) && googleCalendarConnected && googleCalendarSelected) {
+        try {
+          if (window.NativePlanner?.syncGoogleCalendarTodo) {
+            const raw = window.NativePlanner.syncGoogleCalendarTodo(JSON.stringify(result));
+            const syncResult = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            if (syncResult.error) throw new Error(syncResult.error);
+          } else {
+            const syncResponse = await fetch(`/api/google-calendar/sync/${encodeURIComponent(id)}`, { method: 'POST' });
+            const syncResult = await syncResponse.json();
+            if (!syncResponse.ok) throw new Error(syncResult.error || 'Google 수정 반영에 실패했습니다.');
+          }
+          showToast('일정 수정 내용을 Google에도 반영했습니다.', 'success');
+        } catch (syncError) {
+          showToast(`플래너에는 저장했지만 Google 반영에 실패했습니다: ${syncError.message}`, 'danger');
+        }
+      } else {
+        showToast('일정이 수정되었습니다.', 'success');
+      }
     } else {
       todos.push(result);
       showToast('새 일정이 등록되었습니다.', 'success');

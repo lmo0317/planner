@@ -39,10 +39,6 @@ import java.util.Arrays;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -147,11 +143,18 @@ public class MainActivity extends AppCompatActivity {
             String calendarId = getPreferences(MODE_PRIVATE).getString("google_calendar_id", "");
             String calendarName = getPreferences(MODE_PRIVATE).getString("google_calendar_name", "");
             try {
+                JSONArray syncedTodoIds = new JSONArray();
+                for (String key : getPreferences(MODE_PRIVATE).getAll().keySet()) {
+                    if (key.startsWith("google_event_id_") && !String.valueOf(getPreferences(MODE_PRIVATE).getAll().get(key)).isEmpty()) {
+                        syncedTodoIds.put(key.substring("google_event_id_".length()));
+                    }
+                }
                 return new JSONObject()
                     .put("connected", connected)
                     .put("email", email)
                     .put("calendarId", calendarId)
                     .put("calendarName", calendarName)
+                    .put("syncedTodoIds", syncedTodoIds)
                     .put("direct", true)
                     .toString();
             } catch (Exception ignored) { return "{\"connected\":false,\"direct\":true}"; }
@@ -202,37 +205,6 @@ public class MainActivity extends AppCompatActivity {
                     .toString();
             } catch (Exception e) {
                 return "{\"success\":false}";
-            }
-        }
-
-        @JavascriptInterface
-        public String getGoogleCalendarEvents() {
-            try {
-                ensureAccessToken();
-                String calendarId = getPreferences(MODE_PRIVATE).getString("google_calendar_id", "");
-                if (calendarId.isEmpty()) return "{\"events\":[]}";
-                String calendarName = getPreferences(MODE_PRIVATE).getString("google_calendar_name", "Google 캘린더");
-                String encodedCalendarId = java.net.URLEncoder.encode(calendarId, "UTF-8");
-                String timeMin = java.time.ZonedDateTime.now(java.time.ZoneId.of("Asia/Seoul")).minusYears(2).withDayOfYear(1).toInstant().toString();
-                String timeMax = java.time.ZonedDateTime.now(java.time.ZoneId.of("Asia/Seoul")).plusYears(4).withDayOfYear(1).toInstant().toString();
-                String url = "https://www.googleapis.com/calendar/v3/calendars/" + encodedCalendarId
-                    + "/events?maxResults=2500&singleEvents=true&orderBy=startTime&timeMin="
-                    + java.net.URLEncoder.encode(timeMin, "UTF-8") + "&timeMax=" + java.net.URLEncoder.encode(timeMax, "UTF-8");
-                JSONObject listed = googleCalendarRequest("GET", url, null);
-                JSONArray items = listed.optJSONArray("items");
-                JSONArray events = new JSONArray();
-                if (items != null) {
-                    for (int i = 0; i < items.length(); i++) {
-                        JSONObject item = items.getJSONObject(i);
-                        if ("cancelled".equals(item.optString("status"))) continue;
-                        JSONObject converted = googleEventToCalendarViewTodo(item, calendarName);
-                        if (converted != null) events.put(converted);
-                    }
-                }
-                return new JSONObject().put("events", events).toString();
-            } catch (Exception e) {
-                Log.e(TAG, "Failed to fetch selected Google calendar", e);
-                return "{\"error\":" + JSONObject.quote(readableNetworkError(e)) + ",\"events\":[]}";
             }
         }
 
@@ -377,178 +349,6 @@ public class MainActivity extends AppCompatActivity {
             .putString("google_calendar_name", "")
             .apply();
         finishGoogleLogin(true, "Google 계정과 Calendar가 연결되었습니다.");
-    }
-
-    private JSONObject syncDirectGoogleCalendar(JSONArray todos) throws Exception {
-        String targetCalendarId = getPreferences(MODE_PRIVATE).getString("google_calendar_id", "primary");
-        String encodedCalendarId = java.net.URLEncoder.encode(targetCalendarId, "UTF-8");
-
-        String listUrl = "https://www.googleapis.com/calendar/v3/calendars/" + encodedCalendarId + "/events?maxResults=2500&singleEvents=false";
-        Log.i(TAG, "Fetching Google Calendar events from: " + listUrl);
-        JSONObject listed = googleCalendarRequest("GET", listUrl, null);
-        JSONArray items = listed.optJSONArray("items");
-        Log.i(TAG, "Fetched " + (items == null ? 0 : items.length()) + " items from Google Calendar");
-
-        Map<String, JSONObject> remoteEventsByPlannerId = new HashMap<>();
-        Map<String, JSONObject> remoteEventsByGoogleId = new HashMap<>();
-        java.util.List<JSONObject> externalGoogleEvents = new java.util.ArrayList<>();
-
-        if (items != null) {
-            for (int i = 0; i < items.length(); i++) {
-                JSONObject item = items.getJSONObject(i);
-                if ("cancelled".equals(item.optString("status"))) continue;
-                String gId = item.optString("id");
-                remoteEventsByGoogleId.put(gId, item);
-
-                JSONObject extended = item.optJSONObject("extendedProperties");
-                JSONObject privateProperties = extended == null ? null : extended.optJSONObject("private");
-                String todoId = privateProperties == null ? "" : privateProperties.optString("plannerTodoId", "");
-                if (!todoId.isEmpty()) {
-                    remoteEventsByPlannerId.put(todoId, item);
-                } else {
-                    externalGoogleEvents.add(item);
-                }
-            }
-        }
-
-        Set<String> currentPlannerIds = new HashSet<>();
-        Set<String> currentGoogleIds = new HashSet<>();
-        int created = 0, updated = 0, deleted = 0, imported = 0;
-
-        for (int i = 0; i < todos.length(); i++) {
-            JSONObject todo = todos.getJSONObject(i);
-            String todoId = String.valueOf(todo.opt("id"));
-            String googleEventId = todo.optString("googleEventId", "");
-            currentPlannerIds.add(todoId);
-            if (!googleEventId.isEmpty()) currentGoogleIds.add(googleEventId);
-
-            JSONObject event = toDirectGoogleEvent(todo, todoId);
-            JSONObject existing = remoteEventsByPlannerId.get(todoId);
-            if (existing == null && !googleEventId.isEmpty()) {
-                existing = remoteEventsByGoogleId.get(googleEventId);
-            }
-
-            if (existing == null) {
-                googleCalendarRequest("POST", "https://www.googleapis.com/calendar/v3/calendars/" + encodedCalendarId + "/events", event.toString());
-                created++;
-            } else {
-                String remoteId = existing.optString("id");
-                googleCalendarRequest("PUT", "https://www.googleapis.com/calendar/v3/calendars/" + encodedCalendarId + "/events/" + java.net.URLEncoder.encode(remoteId, "UTF-8"), event.toString());
-                updated++;
-            }
-        }
-
-        JSONArray importedTodos = new JSONArray();
-        for (JSONObject extEvent : externalGoogleEvents) {
-            String gId = extEvent.optString("id");
-            if (currentGoogleIds.contains(gId)) continue;
-
-            JSONObject newTodo = googleEventToPlannerTodo(extEvent);
-            if (newTodo != null) {
-                importedTodos.put(newTodo);
-                imported++;
-
-                try {
-                    String todoId = String.valueOf(newTodo.get("id"));
-                    JSONObject patchBody = new JSONObject().put("extendedProperties", new JSONObject().put("private", new JSONObject().put("plannerTodoId", todoId).put("plannerSource", "neo-planner-android")));
-                    googleCalendarRequest("PATCH", "https://www.googleapis.com/calendar/v3/calendars/" + encodedCalendarId + "/events/" + java.net.URLEncoder.encode(gId, "UTF-8"), patchBody.toString());
-                } catch (Exception ignored) {}
-            }
-        }
-
-        return new JSONObject()
-            .put("created", created)
-            .put("updated", updated)
-            .put("deleted", deleted)
-            .put("imported", imported)
-            .put("importedTodos", importedTodos);
-    }
-
-    private JSONObject googleEventToPlannerTodo(JSONObject gEvent) {
-        try {
-            String title = gEvent.optString("summary", "Google 캘린더 일정");
-            if (title.trim().isEmpty()) title = "Google 캘린더 일정";
-            String description = gEvent.optString("description", "");
-            String gId = gEvent.optString("id");
-
-            JSONObject startObj = gEvent.optJSONObject("start");
-            JSONObject endObj = gEvent.optJSONObject("end");
-
-            String startDateTime = startObj == null ? "" : startObj.optString("dateTime", startObj.optString("date", ""));
-            String endDateTime = endObj == null ? startDateTime : endObj.optString("dateTime", endObj.optString("date", startDateTime));
-
-            boolean allDay = startObj != null && startObj.has("date") && !startObj.has("dateTime");
-
-            if (allDay) {
-                if (startDateTime.length() >= 10) startDateTime = startDateTime.substring(0, 10) + "T09:00:00+09:00";
-                if (endDateTime.length() >= 10) {
-                    try {
-                        java.time.LocalDate endLocalDate = java.time.LocalDate.parse(endDateTime.substring(0, 10)).minusDays(1);
-                        endDateTime = endLocalDate.toString() + "T18:00:00+09:00";
-                    } catch (Exception e) {
-                        endDateTime = startDateTime;
-                    }
-                }
-            } else {
-                startDateTime = ensureIsoDateTime(startDateTime);
-                endDateTime = ensureIsoDateTime(endDateTime);
-            }
-
-            long id = System.currentTimeMillis() + (long)(Math.random() * 1000);
-            return new JSONObject()
-                .put("id", id)
-                .put("title", title)
-                .put("content", description)
-                .put("startDate", startDateTime)
-                .put("endDate", endDateTime)
-                .put("allDay", allDay)
-                .put("completed", false)
-                .put("googleEventId", gId)
-                .put("category", "google");
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to convert Google event to todo", e);
-            return null;
-        }
-    }
-
-    private JSONObject googleEventToCalendarViewTodo(JSONObject gEvent, String calendarName) {
-        try {
-            JSONObject startObj = gEvent.optJSONObject("start");
-            JSONObject endObj = gEvent.optJSONObject("end");
-            if (startObj == null) return null;
-            boolean allDay = startObj.has("date") && !startObj.has("dateTime");
-            String startDate = startObj.optString("dateTime", "");
-            String endDate = endObj == null ? startDate : endObj.optString("dateTime", "");
-            if (allDay) {
-                String startDay = startObj.optString("date", "");
-                String exclusiveEndDay = endObj == null ? startDay : endObj.optString("date", startDay);
-                java.time.LocalDate inclusiveEnd = java.time.LocalDate.parse(exclusiveEndDay).minusDays(1);
-                startDate = startDay + "T00:00:00";
-                endDate = inclusiveEnd + "T23:59:59";
-            }
-            JSONObject privateProperties = null;
-            JSONObject extended = gEvent.optJSONObject("extendedProperties");
-            if (extended != null) privateProperties = extended.optJSONObject("private");
-            return new JSONObject()
-                .put("id", "google:" + gEvent.optString("id"))
-                .put("googleEventId", gEvent.optString("id"))
-                .put("title", gEvent.optString("summary", "(제목 없음)"))
-                .put("content", gEvent.optString("description", ""))
-                .put("startDate", startDate)
-                .put("endDate", endDate.isEmpty() ? startDate : endDate)
-                .put("allDay", allDay)
-                .put("completed", false)
-                .put("color", "#4285f4")
-                .put("scheduleType", "google")
-                .put("isGoogleCalendar", true)
-                .put("readOnly", true)
-                .put("googleCalendarName", calendarName)
-                .put("plannerTodoId", privateProperties == null ? JSONObject.NULL : privateProperties.optString("plannerTodoId", ""))
-                .put("htmlLink", gEvent.optString("htmlLink", ""));
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to convert Google calendar event", e);
-            return null;
-        }
     }
 
     private JSONObject toDirectGoogleEvent(JSONObject todo, String todoId) throws Exception {
@@ -712,14 +512,6 @@ public class MainActivity extends AppCompatActivity {
         runOnUiThread(() -> {
             if (webView == null) return;
             String script = "window.handleNativeGoogleLoginResult(" + success + "," + JSONObject.quote(message) + "," + wasExplicit + ");";
-            webView.evaluateJavascript(script, null);
-        });
-    }
-
-    private void notifyGoogleSync(boolean success, String message, String importedTodosJson) {
-        runOnUiThread(() -> {
-            if (webView == null) return;
-            String script = "window.handleNativeGoogleSyncResult(" + success + "," + JSONObject.quote(message) + "," + (importedTodosJson == null ? "null" : JSONObject.quote(importedTodosJson)) + ");";
             webView.evaluateJavascript(script, null);
         });
     }

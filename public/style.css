@@ -473,7 +473,6 @@ body {
 #task-modal .task-calendar-source::before { width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: currentColor; content: ''; }
 #task-modal .task-calendar-source.is-device { border-color: #d7d5fb; background: #f1f0ff; color: #4f46e5; }
 #task-modal .task-calendar-source.is-kidsnote { border-color: #bfe9d6; background: #effaf4; color: #169669; }
-#task-modal .task-calendar-source.is-google { border-color: #cfe0f9; background: #eef5ff; color: #2b73d2; }
 #task-modal .task-google-sync-status { display: inline-flex; width: fit-content; padding: 5px 10px; align-items: center; border: 1px solid #cfe0f9; border-radius: 999px; background: #eef5ff; color: #2b73d2; font-size: .76rem; font-weight: 800; }
 #task-modal .task-google-sync-status.is-unsynced { border-color: #dfe5e2; background: #f5f7f6; color: #6d7872; }
 #task-modal .task-google-sync-status::before { margin-right: 6px; content: '○'; font-weight: 900; }
@@ -5787,7 +5786,6 @@ justify-content: flex-end;
 }
 .sidebar .schedule-type-dot.device, .sidebar .schedule-type-dot.general { background: #4f46e5; }
 .sidebar .schedule-type-dot.kidsnote { background: #17bb89; }
-.sidebar .schedule-type-dot.google { background: #ea4335; }
 
 .sidebar .sidebar-actions-section {
   margin-top: 12px !important;
@@ -7172,7 +7170,6 @@ justify-content: flex-end;
 }
 .event-calendar-source.is-device { background: #eeedff; color: #4338ca; }
 .event-calendar-source.is-kidsnote { background: #e9f9f1; color: #087a54; }
-.event-calendar-source.is-google { background: #eaf2ff; color: #2467c7; }
 .event-google-sync-status {
   display: inline-flex;
   width: fit-content;

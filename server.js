@@ -250,57 +250,6 @@ async function syncTodoToGoogleCalendar(todoId) {
   return { todoId: String(todo.id), googleEventId, action, calendarId, calendarName: store.calendarName };
 }
 
-function googleEventToCalendarTodo(event, calendarName, calendarColor) {
-  const start = event.start || {};
-  const end = event.end || {};
-  const allDay = Boolean(start.date && !start.dateTime);
-  let startDate = start.dateTime || (start.date ? `${start.date}T00:00:00` : '');
-  let endDate = end.dateTime || startDate;
-  if (allDay) {
-    const exclusiveEnd = new Date(`${end.date || start.date}T00:00:00Z`);
-    exclusiveEnd.setUTCDate(exclusiveEnd.getUTCDate() - 1);
-    endDate = `${exclusiveEnd.toISOString().slice(0, 10)}T23:59:59`;
-  }
-  if (!startDate) return null;
-  return {
-    id: `google:${event.id}`,
-    googleEventId: event.id,
-    title: event.summary || '(제목 없음)',
-    content: event.description || '',
-    startDate,
-    endDate: endDate || startDate,
-    allDay,
-    completed: false,
-    color: calendarColor || '#4285f4',
-    scheduleType: 'google',
-    isGoogleCalendar: true,
-    readOnly: true,
-    googleCalendarName: calendarName || GOOGLE_CALENDAR_FALLBACK_NAME,
-    plannerTodoId: event.extendedProperties?.private?.plannerTodoId || null,
-    htmlLink: event.htmlLink || ''
-  };
-}
-
-async function listSelectedGoogleCalendarTodos() {
-  const { store } = await getGoogleCalendarAccessToken();
-  const calendarId = requireSelectedGoogleCalendar(store);
-  const now = new Date();
-  const timeMin = new Date(now.getFullYear() - 2, 0, 1).toISOString();
-  const timeMax = new Date(now.getFullYear() + 4, 0, 1).toISOString();
-  const events = [];
-  let pageToken = '';
-  do {
-    const params = new URLSearchParams({ maxResults: '2500', singleEvents: 'true', orderBy: 'startTime', timeMin, timeMax });
-    if (pageToken) params.set('pageToken', pageToken);
-    const result = await googleCalendarRequest(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?${params}`);
-    events.push(...(result.items || []));
-    pageToken = result.nextPageToken || '';
-  } while (pageToken);
-  return events.filter(event => event.status !== 'cancelled')
-    .map(event => googleEventToCalendarTodo(event, store.calendarName, store.calendarColor))
-    .filter(Boolean);
-}
-
 function getKoreanHolidayModule() {
   if (!koreanHolidayModulePromise) {
     koreanHolidayModulePromise = import('@hyunbinseo/holidays-kr');
@@ -1868,13 +1817,6 @@ app.post('/api/google-calendar/sync/:todoId', async (req, res) => {
       .catch(() => undefined)
       .then(() => syncTodoToGoogleCalendar(req.params.todoId)));
     res.json(result);
-  } catch (error) { res.status(error.status || 502).json({ error: error.message }); }
-});
-
-app.get('/api/google-calendar/events', async (req, res) => {
-  try {
-    const events = await listSelectedGoogleCalendarTodos();
-    res.json({ events });
   } catch (error) { res.status(error.status || 502).json({ error: error.message }); }
 });
 
