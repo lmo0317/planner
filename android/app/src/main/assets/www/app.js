@@ -146,6 +146,11 @@ const kidsNoteConnectionStatus = document.getElementById('kidsnote-connection-st
 const kidsNoteConnectionText = document.getElementById('kidsnote-connection-text');
 const kidsNoteStartDate = document.getElementById('kidsnote-start-date');
 const kidsNoteLoading = document.getElementById('kidsnote-loading');
+const kidsNoteLoadingTitle = document.getElementById('kidsnote-loading-title');
+const kidsNoteLoadingStatus = document.getElementById('kidsnote-loading-status');
+const kidsNoteLoadingMeta = document.getElementById('kidsnote-loading-meta');
+const kidsNoteProgress = document.getElementById('kidsnote-progress');
+const kidsNoteProgressBar = document.getElementById('kidsnote-progress-bar');
 const kidsNotePreview = document.getElementById('kidsnote-preview');
 const kidsNoteList = document.getElementById('kidsnote-list');
 const kidsNoteCount = document.getElementById('kidsnote-count');
@@ -2105,6 +2110,55 @@ function showKidsNoteInput() {
   btnSaveKidsNote.disabled = false;
 }
 
+function formatKidsNoteElapsed(totalSeconds) {
+  const seconds = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  if (seconds < 60) return `${seconds}초`;
+  return `${Math.floor(seconds / 60)}분 ${seconds % 60}초`;
+}
+
+function updateKidsNoteLoadingStatus(update = {}) {
+  const progress = update.progress || update;
+  const completed = Math.max(0, Number(progress.completedChunks) || 0);
+  const total = Math.max(0, Number(progress.totalChunks) || 0);
+  const elapsed = Math.max(0, Number(update.elapsedSeconds) || 0);
+  const phase = progress.phase || 'starting';
+  const isReconnecting = phase === 'reconnecting';
+  const stageAge = Math.max(0, Number(update.stageAgeSeconds) || 0);
+
+  kidsNoteLoadingTitle.textContent = isReconnecting
+    ? '서버 연결을 다시 확인하고 있습니다.'
+    : phase === 'fetching'
+      ? '키즈노트 알림장을 읽고 있습니다.'
+      : phase === 'analyzing'
+        ? 'AI가 일정 후보를 분석하고 있습니다.'
+        : '키즈노트 가져오기를 시작하고 있습니다.';
+  kidsNoteLoadingStatus.textContent = progress.message || (isReconnecting
+    ? '잠시 후 자동으로 다시 연결합니다.'
+    : '작업 상태를 확인하고 있습니다.');
+
+  if (total > 0) {
+    const percent = Math.min(100, Math.round((completed / total) * 100));
+    kidsNoteProgress.classList.remove('is-indeterminate');
+    kidsNoteProgressBar.style.width = `${percent}%`;
+    kidsNoteProgress.setAttribute('aria-valuemin', '0');
+    kidsNoteProgress.setAttribute('aria-valuemax', '100');
+    kidsNoteProgress.setAttribute('aria-valuenow', String(percent));
+  } else {
+    kidsNoteProgress.classList.add('is-indeterminate');
+    kidsNoteProgressBar.style.width = '';
+    kidsNoteProgress.removeAttribute('aria-valuenow');
+  }
+
+  const serverState = isReconnecting
+    ? `서버 응답 지연 · 재연결 ${update.retryCount || 1}/5`
+    : stageAge >= 90
+      ? `서버 응답 정상 · ${formatKidsNoteElapsed(stageAge)}째 단계 변화 없음`
+      : stageAge >= 15
+        ? `서버 응답 정상 · AI 응답 ${formatKidsNoteElapsed(stageAge)} 대기`
+        : '서버 응답 정상';
+  kidsNoteLoadingMeta.textContent = `${formatKidsNoteElapsed(elapsed)} 경과 · ${serverState}`;
+}
+
 async function analyzeKidsNote() {
   const importStartDate = kidsNoteStartDate.value;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(importStartDate)) {
@@ -2120,16 +2174,19 @@ async function analyzeKidsNote() {
   kidsNoteInputPanel.classList.add('hidden');
   kidsNotePreview.classList.add('hidden');
   kidsNoteLoading.classList.remove('hidden');
+  updateKidsNoteLoadingStatus();
   btnAnalyzeKidsNote.disabled = true;
   try {
-    const result = await runKidsNoteBackgroundAnalysis(payload, partial => {
+    const result = await runKidsNoteBackgroundAnalysis(payload, update => {
+        updateKidsNoteLoadingStatus(update);
+        const partial = update.result;
+        if (!partial?.events) return;
         kidsNoteEventsState = filterKidsNoteEventsByStartDate(partial.events, importStartDate);
-        kidsNoteLoading.classList.add('hidden');
         kidsNotePreview.classList.remove('hidden');
         btnAnalyzeKidsNote.classList.add('hidden');
         btnSaveKidsNote.classList.add('hidden');
-        const completed = partial.completedChunks || 0;
-        const total = partial.totalChunks || 0;
+        const completed = update.progress?.completedChunks || partial.completedChunks || 0;
+        const total = update.progress?.totalChunks || partial.totalChunks || 0;
         kidsNoteSummary.textContent = `분석 중 ${completed}/${total} · 알림장 ${partial.analyzedCount || 0}건 확인 · 일정 후보 ${kidsNoteEventsState.length}건`;
         renderKidsNoteCandidates();
       });
@@ -2160,6 +2217,7 @@ async function runKidsNoteDirectAnalysis(payload) {
 }
 
 async function runKidsNoteBackgroundAnalysis(payload, onProgress) {
+  const startedAt = Date.now();
   const startResponse = await fetch('/api/kidsnote/import/start', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -2170,17 +2228,47 @@ async function runKidsNoteBackgroundAnalysis(payload, onProgress) {
     throw new Error(started.error || '키즈노트 분석 작업을 시작하지 못했습니다.');
   }
 
-  let lastCompletedChunks = -1;
+  if (typeof onProgress === 'function') {
+    onProgress({ progress: { phase: 'fetching', message: '키즈노트 알림장을 읽고 있습니다.' }, elapsedSeconds: 0 });
+  }
+  let consecutiveErrors = 0;
   for (let attempt = 0; attempt < 180; attempt++) {
     await new Promise(resolve => setTimeout(resolve, 2000));
-    const statusResponse = await fetch(`/api/kidsnote/import/jobs/${encodeURIComponent(started.jobId)}`, { cache: 'no-store' });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    let statusResponse;
+    try {
+      statusResponse = await fetch(`/api/kidsnote/import/jobs/${encodeURIComponent(started.jobId)}`, {
+        cache: 'no-store',
+        signal: controller.signal
+      });
+      consecutiveErrors = 0;
+    } catch (error) {
+      consecutiveErrors += 1;
+      if (typeof onProgress === 'function') {
+        onProgress({
+          progress: { phase: 'reconnecting', message: '서버 응답이 늦어 연결 상태를 다시 확인하고 있습니다.' },
+          elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000),
+          retryCount: consecutiveErrors
+        });
+      }
+      if (consecutiveErrors >= 5) throw new Error('키즈노트 분석 서버의 응답이 없습니다. 잠시 후 다시 시도해 주세요.');
+      continue;
+    } finally {
+      clearTimeout(timeoutId);
+    }
     const status = await statusResponse.json().catch(() => ({}));
     if (statusResponse.ok && status.status === 'completed') return status.result;
-    const completedChunks = Number(status.result?.completedChunks ?? status.progress?.completedChunks ?? -1);
-    if (statusResponse.ok && status.status === 'processing' && status.result &&
-        completedChunks !== lastCompletedChunks && typeof onProgress === 'function') {
-      lastCompletedChunks = completedChunks;
-      onProgress(status.result);
+    if (statusResponse.ok && status.status === 'processing' && typeof onProgress === 'function') {
+      const progress = status.progress || {};
+      onProgress({
+        progress,
+        result: status.result || null,
+        elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000),
+        stageAgeSeconds: progress.updatedAt && status.serverTime
+          ? Math.max(0, Math.floor((status.serverTime - progress.updatedAt) / 1000))
+          : 0
+      });
     }
     if (!statusResponse.ok || status.status === 'failed') {
       throw new Error(status.error || '키즈노트 데이터 분석에 실패했습니다.');

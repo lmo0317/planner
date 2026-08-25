@@ -21,7 +21,7 @@
   <!-- Lucide Icons CDN -->
   <script src="vendor/lucide.min.js"></script>
   <!-- Tailwind/Vanilla CSS -->
-  <link rel="stylesheet" href="style.css?v=20260825-week-clean-v10">
+  <link rel="stylesheet" href="style.css?v=20260825-kidsnote-progress-v1">
 </head>
 <body class="light-theme">
   <div class="glow-bg">
@@ -347,9 +347,14 @@
         </div>
       </div>
 
-      <div id="kidsnote-loading" class="import-state-panel hidden">
+      <div id="kidsnote-loading" class="import-state-panel hidden" role="status" aria-live="polite">
         <div class="spinner"></div>
-        <p>키즈노트 알림장을 읽고 일정을 분석하고 있습니다...</p>
+        <p id="kidsnote-loading-title" class="kidsnote-loading-title">키즈노트 가져오기를 시작하고 있습니다...</p>
+        <div id="kidsnote-progress" class="kidsnote-import-progress is-indeterminate" role="progressbar" aria-label="키즈노트 가져오기 진행률">
+          <span id="kidsnote-progress-bar"></span>
+        </div>
+        <p id="kidsnote-loading-status" class="kidsnote-loading-status">서버에 작업을 요청하고 있습니다.</p>
+        <p id="kidsnote-loading-meta" class="kidsnote-loading-meta">0초 경과 · 서버 확인 중</p>
       </div>
 
       <div id="kidsnote-preview" class="hidden">
@@ -471,6 +476,6 @@
   </div>
 
   <script src="offline-storage.js?v=20260825-kidsnote-session-v2"></script>
-  <script src="app.js?v=20260825-kidsnote-session-v11"></script>
+  <script src="app.js?v=20260825-kidsnote-progress-v1"></script>
 </body>
 </html>

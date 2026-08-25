@@ -90,6 +90,37 @@
         "contentIncludes": ["2분기 시험안내", "평가 범위"]
       },
       "regression": "The full KidsNote import collapsed the duplicate but rewrote the canonical title to 분기 시험 and dropped the detailed notice heading."
+    },
+    {
+      "id": "kidsnote-quarter-test-clean-lines",
+      "kind": "kidsnote-import",
+      "reportedAt": "2026-08-25",
+      "input": "Quater Test 알림장의 어긋난 줄바꿈을 LLM이 읽기 좋은 일정 본문으로 정리한 뒤 추가한다.",
+      "baseDate": "2026-08-25T21:30:00+09:00",
+      "inputReports": [
+        {
+          "id": "eval-quarter-lines-1",
+          "title": "Quater Test",
+          "content": "8월 31일 Quater\nTest를 실시합니다.",
+          "date_written": "2026-08-20T09:00:00+09:00"
+        },
+        {
+          "id": "eval-quarter-lines-2",
+          "title": "2분기 시험안내",
+          "content": "8월 31일 Quater\nTest를 실시합니다.\n평가\n범위: Unit 1~4.",
+          "date_written": "2026-08-20T09:05:00+09:00"
+        }
+      ],
+      "expected": {
+        "eventCount": 1,
+        "title": "Quater Test",
+        "startDate": "2026-08-31T00:00:00+09:00",
+        "endDate": "2026-08-31T23:59:59+09:00",
+        "allDay": true,
+        "contentIncludes": ["2분기 시험안내", "Quater Test", "평가 범위: Unit 1~4."],
+        "contentExcludes": ["Quater\nTest", "평가\n범위"]
+      },
+      "regression": "Copied KidsNote hard wraps split the exam name and evaluation-scope label, leaving the saved calendar description visibly misaligned."
     }
   ]
 }

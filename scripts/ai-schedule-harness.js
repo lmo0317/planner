@@ -42,6 +42,11 @@ function validate(testCase, result) {
       errors.push(`content expected to include ${JSON.stringify(fragment)}, received ${JSON.stringify(event.content || '')}`);
     }
   }
+  for (const fragment of expected.contentExcludes || []) {
+    if (String(event.content || '').includes(fragment)) {
+      errors.push(`content expected to exclude ${JSON.stringify(fragment)}, received ${JSON.stringify(event.content || '')}`);
+    }
+  }
   if (Object.hasOwn(expected, 'clarification') && String(result.clarification || '') !== expected.clarification) {
     errors.push(`clarification expected ${JSON.stringify(expected.clarification)}, received ${JSON.stringify(result.clarification || '')}`);
   }

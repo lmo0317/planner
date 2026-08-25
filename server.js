@@ -1242,6 +1242,19 @@ function getKidsNoteCanonicalAssessmentTitles(report) {
   return titles;
 }
 
+function cleanKidsNoteSourceText(value) {
+  return stripHtml(value)
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .split(/\r?\n+/)
+    .map(line => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s*[:：]\s*/g, ': ')
+    .replace(/([.!?。！？])\s+(?=[가-힣A-Za-z0-9])/g, '$1\n')
+    .replace(/\s+(?=(?:평가\s*범위|준비물|일시|장소|대상|기간)\s*:)/g, '\n')
+    .trim();
+}
+
 function enrichKidsNoteAssessmentEvents(events, reports) {
   const assessmentSources = [];
   for (const report of reports || []) {
@@ -1270,13 +1283,13 @@ function enrichKidsNoteAssessmentEvents(events, reports) {
     const detailValues = [];
     for (const report of detailedReports) {
       if (normalizeCandidateText(report.title) !== canonicalIdentity) detailValues.push(report.title);
-      detailValues.push(report.content);
+      detailValues.push(cleanKidsNoteSourceText(report.content));
     }
     return {
       ...event,
       title: canonicalTitle,
       content: mergeKidsNoteTextParts([event.content, ...detailValues], 1200),
-      evidence: mergeKidsNoteTextParts([event.evidence, ...detailedReports.map(report => report.content)], 1000)
+      evidence: mergeKidsNoteTextParts([event.evidence, ...detailedReports.map(report => cleanKidsNoteSourceText(report.content))], 1000)
     };
   });
   return deduplicateKidsNoteEvents(enriched);
@@ -1376,6 +1389,7 @@ RULES:
 14. Before returning JSON, perform a duplicate pass across every event you plan to emit. One real-world occurrence must be one event only: consolidate repeated notices, paraphrases, and a title plus its explanatory notice into a single candidate.
 15. Never emit two candidates for the same date range unless they are clearly different activities or obligations. Use a short canonical title that names the event itself, excluding notice words such as 안내, 공지, 일정, 기간, 운영, or 실시.
 16. When a generic exam notice heading names the same exam title in its body on the same date, merge them. Keep the canonical exam name as title and preserve the notice heading, evaluation scope, preparation items, and other details in content.
+17. Rewrite content into clean, calendar-ready Korean. Repair hard line breaks that split a word or phrase (for example, "Quater\nTest" or "평가\n범위"), remove copied UI noise, and organize separate facts on readable lines. Preserve every concrete fact and original proper name; do not summarize away the evaluation scope or preparation items.
 
 Return JSON only.`;
 
@@ -1479,7 +1493,14 @@ app.post('/api/kidsnote/import/start', (req, res) => {
     status: 'processing',
     createdAt: Date.now(),
     result: null,
-    progress: { completedChunks: 0, totalChunks: 0 },
+    progress: {
+      phase: 'fetching',
+      message: '키즈노트 알림장을 읽고 있습니다.',
+      completedChunks: 0,
+      totalChunks: 0,
+      reportCount: 0,
+      updatedAt: Date.now()
+    },
     importStartDate,
     error: ''
   };
@@ -1492,12 +1513,25 @@ app.post('/api/kidsnote/import/start', (req, res) => {
         maxPages: 1
       });
       if (!reports.length) throw new Error('분석할 키즈노트 알림장 데이터가 없습니다.');
+      job.progress = {
+        phase: 'analyzing',
+        message: `알림장 ${reports.length}건을 AI가 분석하고 있습니다.`,
+        completedChunks: 0,
+        totalChunks: 0,
+        reportCount: reports.length,
+        updatedAt: Date.now()
+      };
       job.result = await parseKidsNoteReports(reports, req.body?.baseDate || new Date().toISOString(), {
         onProgress: partialResult => {
           job.result = filterKidsNoteEventsByImportStartDate(partialResult, importStartDate);
           job.progress = {
+            phase: 'analyzing',
+            message: `AI 분석 ${partialResult.completedChunks}/${partialResult.totalChunks}단계를 완료했습니다.`,
             completedChunks: partialResult.completedChunks,
-            totalChunks: partialResult.totalChunks
+            totalChunks: partialResult.totalChunks,
+            reportCount: partialResult.reportCount,
+            analyzedCount: partialResult.analyzedCount,
+            updatedAt: Date.now()
           };
         }
       });
@@ -1507,6 +1541,7 @@ app.post('/api/kidsnote/import/start', (req, res) => {
       console.error('KidsNote background analysis error:', error.message);
       job.error = error.message || '키즈노트 데이터를 분석하지 못했습니다.';
       job.status = 'failed';
+      job.progress.updatedAt = Date.now();
     }
   });
 
@@ -1527,7 +1562,7 @@ app.get('/api/kidsnote/import/jobs/:jobId', (req, res) => {
     kidsNoteAnalysisJobs.delete(req.params.jobId);
     return res.status(500).json({ status: 'failed', error: job.error });
   }
-  res.json({ status: 'processing', result: job.result, progress: job.progress });
+  res.json({ status: 'processing', result: job.result, progress: job.progress, serverTime: Date.now() });
 });
 
 setInterval(() => {
@@ -2173,6 +2208,7 @@ RULES:
 13. confidence is 0 to 1. Use below 0.65 for ambiguity and omit that event.
 14. A date range such as "월요일부터 금요일까지", "7월 20일~24일", or "3일 동안" is one period event. Return one event whose startDate is the first day and endDate is the last day. Never split it into one event per day.
 15. title must contain the actual activity from the user's text. Never return placeholders such as "미정", "일정", "없음", or "Untitled" when an activity like PT, 회의, 축구, 치료, or 약속 is present.
+16. clarification is only for a question that the user must answer because essential schedule information is genuinely ambiguous. When the event can be created from the request and DATE_HINT, return an empty string. Never use clarification to confirm or restate a successfully parsed event.
 
 Return one JSON object containing events and clarification. Return no prose or markdown.`;
 
