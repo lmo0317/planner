@@ -63,6 +63,16 @@ async function verifyPage(browser, name, route, viewport) {
     });
     return kidsNoteLoadingMeta.textContent;
   });
+  state.filteringTitle = await page.evaluate(() => {
+    updateKidsNoteLoadingStatus({
+      progress: {
+        phase: 'filtering',
+        message: '알림장 100건을 가져왔습니다. 2026-08-25 이후 일정 후보를 선별하고 있습니다.'
+      },
+      elapsedSeconds: 3
+    });
+    return kidsNoteLoadingTitle.textContent;
+  });
 
   fs.mkdirSync(outputDir, { recursive: true });
   await page.screenshot({ path: path.join(outputDir, `kidsnote-progress-${name}.png`), fullPage: true });
@@ -75,6 +85,7 @@ async function verifyPage(browser, name, route, viewport) {
     state.ariaNow === '50' &&
     state.progressRatio >= 0.49 && state.progressRatio <= 0.51 &&
     state.delayedMeta.includes('1분 35초째 단계 변화 없음') &&
+    state.filteringTitle.includes('오늘 이후 일정 후보') &&
     state.modalWithinViewport && !state.horizontalOverflow && errors.length === 0;
   console.log(`${passed ? 'PASS' : 'FAIL'} ${name} ${JSON.stringify({ ...state, errors })}`);
   return passed;

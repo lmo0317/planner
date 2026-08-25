@@ -2129,6 +2129,8 @@ function updateKidsNoteLoadingStatus(update = {}) {
     ? '서버 연결을 다시 확인하고 있습니다.'
     : phase === 'fetching'
       ? '키즈노트 알림장을 읽고 있습니다.'
+      : phase === 'filtering'
+        ? '오늘 이후 일정 후보를 선별하고 있습니다.'
       : phase === 'analyzing'
         ? 'AI가 일정 후보를 분석하고 있습니다.'
         : '키즈노트 가져오기를 시작하고 있습니다.';

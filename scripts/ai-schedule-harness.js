@@ -31,6 +31,16 @@ function validate(testCase, result) {
   if (events.length !== expected.eventCount) {
     errors.push(`eventCount expected ${expected.eventCount}, received ${events.length}`);
   }
+  for (const field of ['reportCount', 'analyzedCount']) {
+    if (Object.hasOwn(expected, field) && result[field] !== expected[field]) {
+      errors.push(`${field} expected ${JSON.stringify(expected[field])}, received ${JSON.stringify(result[field])}`);
+    }
+  }
+  for (const fragment of expected.titlesInclude || []) {
+    if (!events.some(item => String(item.title || '').includes(fragment))) {
+      errors.push(`titles expected one event to include ${JSON.stringify(fragment)}, received ${JSON.stringify(events.map(item => item.title || ''))}`);
+    }
+  }
   const event = events[0] || {};
   for (const field of ['title', 'startDate', 'endDate', 'allDay']) {
     if (Object.hasOwn(expected, field) && event[field] !== expected[field]) {
@@ -75,7 +85,12 @@ function validate(testCase, result) {
         const response = await fetch(`${baseUrl}/api/kidsnote/import`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mode: 'json', data: testCase.inputReports || [], baseDate: testCase.baseDate }),
+          body: JSON.stringify({
+            mode: 'json',
+            data: testCase.inputReports || [],
+            baseDate: testCase.baseDate,
+            importStartDate: testCase.importStartDate
+          }),
           signal: AbortSignal.timeout(90000)
         });
         const body = await response.text();

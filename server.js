@@ -1297,6 +1297,18 @@ function enrichKidsNoteAssessmentEvents(events, reports) {
 
 const KIDSNOTE_ACTION_KEYWORD_REGEX = /(준비물|지참|제출|신청|마감|납부|입금|행사|견학|소풍|체험|방학|개학|휴원|휴관|수업|상담|검사|검진|예방접종|입학|졸업|발표회|운동회|오리엔테이션|설명회|참석|등원|하원|예약|방문|촬영|생일|파티|공연|관람|모임)/i;
 
+function shouldAnalyzeKidsNoteReport(report, importStartDate) {
+  if (!importStartDate) return true;
+  const resolvedDates = resolveKidsNoteDateExpressions(
+    `${report?.title || ''}\n${report?.content || ''}`,
+    report?.writtenAt
+  );
+  // Keep notices without a deterministically resolvable date so the LLM can
+  // still interpret uncommon expressions instead of silently losing events.
+  if (!resolvedDates.length) return true;
+  return resolvedDates.some(({ date }) => date >= importStartDate);
+}
+
 function buildKidsNoteFallbackEvents(formattedReports, referenceDate) {
   const fallbackOffset = getBaseOffset(referenceDate);
   const events = [];
@@ -1336,16 +1348,21 @@ function buildKidsNoteFallbackEvents(formattedReports, referenceDate) {
 
 async function parseKidsNoteReports(reports, referenceDate, options = {}) {
   const scheduleNoticePattern = /(오늘|내일|모레|이번\s*주|다음\s*주|다다음\s*주|월요일|화요일|수요일|목요일|금요일|토요일|일요일|\d{1,2}\s*월\s*\d{1,2}\s*일|\d{1,2}[./-]\d{1,2}|까지|마감|제출|신청|준비물|지참|행사|견학|소풍|방학|개학|휴원|수업|상담|검사|예방접종|입학|졸업|발표회|운동회)/i;
+  const importStartDate = normalizeKidsNoteImportStartDate(options.importStartDate);
   const formatted = reports
     .map(formatKidsNoteReport)
     .filter(Boolean)
     .filter(report => scheduleNoticePattern.test(`${report.title}\n${report.content}`))
+    .filter(report => shouldAnalyzeKidsNoteReport(report, importStartDate))
     .slice(0, 40);
   const chunks = chunkKidsNoteReports(formatted);
+  const analyzedCount = chunks.reduce((count, chunk) => count + (chunk.match(/\[KIDSNOTE_REPORT\b/g) || []).length, 0);
+  if (typeof options.onPrepared === 'function') {
+    options.onPrepared({ reportCount: reports.length, analyzedCount, totalChunks: chunks.length });
+  }
   if (!chunks.length) return { events: [], reportCount: reports.length, analyzedCount: 0 };
   const reportsById = new Map(formatted.map(report => [String(report.sourceId), report]));
   const fallbackEvents = buildKidsNoteFallbackEvents(formatted, referenceDate);
-  const analyzedCount = chunks.reduce((count, chunk) => count + (chunk.match(/\[KIDSNOTE_REPORT\b/g) || []).length, 0);
 
   const schema = {
     type: 'object',
@@ -1472,7 +1489,7 @@ app.post('/api/kidsnote/import', async (req, res) => {
       reports = getKidsNoteReports(data);
     }
     if (!reports.length) return res.status(400).json({ error: '분석할 키즈노트 알림장 데이터가 없습니다.' });
-    const result = await parseKidsNoteReports(reports, baseDate || new Date().toISOString());
+    const result = await parseKidsNoteReports(reports, baseDate || new Date().toISOString(), { importStartDate });
     res.json(filterKidsNoteEventsByImportStartDate(result, importStartDate));
   } catch (err) {
     console.error('KidsNote import error:', err.message);
@@ -1514,23 +1531,37 @@ app.post('/api/kidsnote/import/start', (req, res) => {
       });
       if (!reports.length) throw new Error('분석할 키즈노트 알림장 데이터가 없습니다.');
       job.progress = {
-        phase: 'analyzing',
-        message: `알림장 ${reports.length}건을 AI가 분석하고 있습니다.`,
+        phase: 'filtering',
+        message: `알림장 ${reports.length}건을 가져왔습니다. ${importStartDate || '오늘'} 이후 일정 후보를 선별하고 있습니다.`,
         completedChunks: 0,
         totalChunks: 0,
         reportCount: reports.length,
         updatedAt: Date.now()
       };
       job.result = await parseKidsNoteReports(reports, req.body?.baseDate || new Date().toISOString(), {
+        importStartDate,
+        onPrepared: prepared => {
+          job.progress = {
+            phase: 'analyzing',
+            message: `선별된 알림장 ${prepared.analyzedCount}건을 AI가 분석합니다.`,
+            completedChunks: 0,
+            totalChunks: prepared.totalChunks,
+            reportCount: prepared.reportCount,
+            analyzedCount: 0,
+            totalAnalyzedCount: prepared.analyzedCount,
+            updatedAt: Date.now()
+          };
+        },
         onProgress: partialResult => {
           job.result = filterKidsNoteEventsByImportStartDate(partialResult, importStartDate);
           job.progress = {
             phase: 'analyzing',
-            message: `AI 분석 ${partialResult.completedChunks}/${partialResult.totalChunks}단계를 완료했습니다.`,
+            message: `AI 분석 ${partialResult.completedChunks}/${partialResult.totalChunks}단계 · 알림장 ${partialResult.analyzedCount}/${partialResult.totalAnalyzedCount}건`,
             completedChunks: partialResult.completedChunks,
             totalChunks: partialResult.totalChunks,
             reportCount: partialResult.reportCount,
             analyzedCount: partialResult.analyzedCount,
+            totalAnalyzedCount: partialResult.totalAnalyzedCount,
             updatedAt: Date.now()
           };
         }

@@ -121,6 +121,41 @@
         "contentExcludes": ["Quater\nTest", "평가\n범위"]
       },
       "regression": "Copied KidsNote hard wraps split the exam name and evaluation-scope label, leaving the saved calendar description visibly misaligned."
+    },
+    {
+      "id": "kidsnote-import-start-date-pre-filter",
+      "kind": "kidsnote-import",
+      "reportedAt": "2026-08-25",
+      "input": "일정을 오늘 이후로 설정하면 과거 일정 알림장은 AI 분석 전에 제외하되, 예전에 작성된 미래 일정 안내는 유지한다.",
+      "baseDate": "2026-08-25T23:20:00+09:00",
+      "importStartDate": "2026-08-25",
+      "inputReports": [
+        {
+          "id": "eval-past-event",
+          "title": "지난 체험학습",
+          "content": "8월 20일 체험학습을 진행합니다.",
+          "date_written": "2026-08-18T09:00:00+09:00"
+        },
+        {
+          "id": "eval-early-future-notice",
+          "title": "Quater Test",
+          "content": "8월 31일 Quater Test를 실시합니다.",
+          "date_written": "2026-08-20T09:00:00+09:00"
+        },
+        {
+          "id": "eval-future-event",
+          "title": "9월 견학 안내",
+          "content": "9월 2일 박물관 견학을 진행합니다.",
+          "date_written": "2026-08-25T09:00:00+09:00"
+        }
+      ],
+      "expected": {
+        "eventCount": 2,
+        "reportCount": 3,
+        "analyzedCount": 2,
+        "titlesInclude": ["Quater Test", "견학"]
+      },
+      "regression": "The import start date was applied only after all fetched reports were sent through the AI pipeline, so the UI claimed that all 100 reports were being analyzed."
     }
   ]
 }
