@@ -368,28 +368,6 @@ button { cursor: pointer; }
 .ai-image-preview strong { overflow: hidden; color: var(--ink); font-size: .8rem; text-overflow: ellipsis; white-space: nowrap; }
 .ai-image-privacy { display: flex; margin: 9px 2px 0; align-items: center; gap: 5px; }
 .ai-image-privacy svg { width: 14px; height: 14px; flex: 0 0 auto; color: var(--green); }
-.ai-example-list { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; color: #8b9691; font-size: .75rem; }
-.ai-example-chip { min-height: 34px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 999px; background: #fff; color: #64716b; font-size: .78rem; }
-.ai-example-list {
-  display: grid;
-  grid-template-columns: 1fr;
-  align-items: stretch;
-  gap: 7px;
-  width: 100%;
-  margin: 4px 0 16px;
-}
-.ai-example-list > span { display: block; font-weight: 750; line-height: 1.35; }
-.ai-example-chip {
-  width: 100%;
-  min-width: 0;
-  min-height: 44px;
-  padding: 8px 12px;
-  overflow: visible;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  line-height: 1.35;
-  text-align: left;
-}
 .ai-schedule-footer .btn { border-radius: 999px; }
 .import-state-panel { padding: 22px 10px; text-align: center; }
 .spinner { width: 28px; height: 28px; margin: 0 auto 10px; border: 3px solid #dce4e0; border-top-color: var(--green); border-radius: 50%; }
@@ -656,10 +634,10 @@ input, textarea, select { font-size: 18px !important; }
 }
 .mobile-month-more, #list-view .badge { font-size: .7rem; }
 .menu-section h3, .mobile-selected-date-label, .mobile-selected-day-count,
-.day-agenda-kicker, .day-agenda-count, .ai-example-list,
+.day-agenda-kicker, .day-agenda-count,
 .kidsnote-login-help, .kidsnote-start-date-help, .google-calendar-sharing-panel small { font-size: .82rem; }
 .mobile-agenda-time, .mobile-agenda-content small, #list-view .todo-time,
-#list-view .todo-content, .ai-example-chip, .kidsnote-security-note,
+#list-view .todo-content, .kidsnote-security-note,
 .day-agenda-time, .day-agenda-details small, .timetree-sync-button,
 #ai-schedule-preview .ai-preview-header, .ai-schedule-list .card-time-col,
 .ai-schedule-list .event-card-date, .ai-schedule-list .calendar-select { font-size: .84rem; }

@@ -753,8 +753,7 @@ body {
     padding: 24px 34px 30px !important; border-radius: 24px !important;
   }
   #ai-schedule-text { min-height: 92px; height: 92px; max-height: 92px; font-size: 1.25rem; }
-  .ai-input-label, .ai-example-list { font-size: 1rem; }
-  .ai-example-chip { min-height: 42px; font-size: 0.95rem; }
+  .ai-input-label { font-size: 1rem; }
   #kidsnote-modal .kidsnote-modal-content { display: flex; flex-direction: column; }
   #kidsnote-modal .kidsnote-security-note { padding: 18px; font-size: 1rem; }
   #kidsnote-modal .kidsnote-login-button { min-height: 62px; font-size: 1.08rem; }
@@ -874,8 +873,7 @@ body {
     border-radius: 24px !important;
   }
   #ai-schedule-text { min-height: 92px; height: 92px; max-height: 92px; font-size: 1.25rem; }
-  .ai-input-label, .ai-example-list { font-size: 1rem; }
-  .ai-example-chip { min-height: 42px; font-size: 0.95rem; }
+  .ai-input-label { font-size: 1rem; }
 
   #kidsnote-modal .kidsnote-modal-content { display: flex; flex-direction: column; }
   #kidsnote-modal .kidsnote-security-note { padding: 18px; font-size: 1rem; }
@@ -891,7 +889,6 @@ body {
   .mobile-month-day { min-height: 40px; }
   .mobile-day-agenda { padding-top: 12px; }
   .mobile-day-agenda-header h3 { font-size: 1.05rem; }
-  .ai-example-list { margin-bottom: 10px; }
 }
 
 /* Desktop day-agenda dialog: keep the compact popup readable on the dark theme. */
@@ -3392,25 +3389,6 @@ textarea:focus {
   display: none;
 }
 
-.ai-example-list {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  align-items: stretch;
-  gap: 8px;
-  width: 100%;
-  margin: 4px 0 18px;
-}
-
-.ai-example-list > span {
-  grid-column: 1 / -1;
-  display: block;
-  color: var(--text-muted);
-  font-size: 0.78rem;
-  font-weight: 750;
-  line-height: 1.35;
-}
-
-.ai-example-chip,
 .btn-text {
   border: 0;
   background: var(--border-color);
@@ -3422,7 +3400,6 @@ textarea:focus {
   font-size: 0.78rem;
 }
 
-.ai-example-chip:hover,
 .btn-text:hover {
   color: var(--text-primary);
   background: var(--bg-card-hover);
@@ -3538,17 +3515,6 @@ textarea:focus {
 
 .kidsnote-connection-status.hidden {
   display: none;
-}
-
-.ai-example-chip {
-  width: 100%;
-  min-width: 0;
-  min-height: 40px;
-  overflow: visible;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  line-height: 1.35;
-  text-align: center;
 }
 
 .kidsnote-connection-status.disconnected {
@@ -5111,10 +5077,6 @@ justify-content: flex-end;
   .ai-mic-btn svg {
     width: 22px;
     height: 22px;
-  }
-
-  .ai-example-list {
-    margin-bottom: 20px;
   }
 
   .ai-loading-text {
@@ -7177,7 +7139,6 @@ justify-content: flex-end;
   .mobile-month-day { min-height: 40px; }
   .mobile-day-agenda { padding-top: 12px; }
   .mobile-day-agenda-header h3 { font-size: 1.05rem; }
-  .ai-example-list { margin-bottom: 10px; }
 }
 
 @media (max-width: 900px), (orientation: portrait) {
@@ -7261,8 +7222,7 @@ justify-content: flex-end;
     padding: 24px 34px 30px !important; border-radius: 24px !important;
   }
   #ai-schedule-text { min-height: 92px; height: 92px; max-height: 92px; font-size: 1.25rem; }
-  .ai-input-label, .ai-example-list { font-size: 1rem; }
-  .ai-example-chip { min-height: 42px; font-size: 0.95rem; }
+  .ai-input-label { font-size: 1rem; }
   #kidsnote-modal .kidsnote-modal-content { display: flex; flex-direction: column; }
   #kidsnote-modal .kidsnote-security-note { padding: 18px; font-size: 1rem; }
   #kidsnote-modal .kidsnote-login-button { min-height: 62px; font-size: 1.08rem; }

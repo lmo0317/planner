@@ -2529,13 +2529,6 @@ function setupAiScheduleEventListeners() {
   aiScheduleImage?.addEventListener('change', () => selectAiScheduleImage(aiScheduleImage.files?.[0]));
   btnRemoveAiScheduleImage?.addEventListener('click', clearAiScheduleImage);
 
-  document.querySelectorAll('.ai-example-chip').forEach(chip => {
-    chip.addEventListener('click', () => {
-      aiScheduleText.value = chip.dataset.text || chip.textContent.trim();
-      aiScheduleText.focus();
-    });
-  });
-
   window.addEventListener('click', (event) => {
     if (event.target === aiScheduleModal) closeAiSchedule();
   });

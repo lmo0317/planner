@@ -56,6 +56,7 @@ async function verifyPage(browser, name, route, viewport) {
     if (typeof openAiScheduleModal === 'function') openAiScheduleModal();
     else openAiSchedule();
   });
+  await page.screenshot({ path: path.join(outputDir, `ai-schedule-text-${name}.png`), fullPage: true });
   await page.click('[data-ai-input-mode="image"]');
   const input = await page.$('#ai-schedule-image');
   await input.uploadFile(sourceImage);
@@ -76,6 +77,7 @@ async function verifyPage(browser, name, route, viewport) {
   const state = await page.evaluate(() => ({
     imageModeSelected: document.querySelector('[data-ai-input-mode="image"]').getAttribute('aria-selected'),
     imagePanelVisible: !document.getElementById('ai-schedule-image-panel').classList.contains('hidden'),
+    recommendationsRemoved: !document.querySelector('.ai-example-list') && !document.body.textContent.includes('추천 예시'),
     title: document.querySelector('#ai-schedule-list .event-card-title')?.textContent || '',
     selectedCount: document.getElementById('ai-selected-count')?.textContent || '',
     horizontalOverflow: document.documentElement.scrollWidth > innerWidth,
@@ -89,7 +91,7 @@ async function verifyPage(browser, name, route, viewport) {
 
   const withinViewport = state.modalRect.left >= 0 && state.modalRect.right <= viewport.width &&
     state.modalRect.top >= 0 && state.modalRect.bottom <= viewport.height;
-  const passed = state.imageModeSelected === 'true' && state.title.includes('학부모 공개수업') &&
+  const passed = state.imageModeSelected === 'true' && state.recommendationsRemoved && state.title.includes('학부모 공개수업') &&
     state.selectedCount === '1' && imagePayload?.imageDataUrl?.startsWith('data:image/jpeg;base64,') &&
     Boolean(imagePayload?.baseDate) && !state.horizontalOverflow && withinViewport && errors.length === 0;
   console.log(`${passed ? 'PASS' : 'FAIL'} ${name} ${JSON.stringify({ ...state, payload: Boolean(imagePayload), withinViewport, errors })}`);
