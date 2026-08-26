@@ -23,6 +23,9 @@ async function verifyPage(browser, name, route, viewport) {
   const page = await browser.newPage();
   let imagePayload = null;
   const errors = [];
+  page.on('console', message => {
+    if (message.type() === 'error') errors.push(message.text());
+  });
   page.on('pageerror', error => errors.push(error.message));
   await page.setRequestInterception(true);
   page.on('request', request => {
@@ -56,7 +59,16 @@ async function verifyPage(browser, name, route, viewport) {
   await page.click('[data-ai-input-mode="image"]');
   const input = await page.$('#ai-schedule-image');
   await input.uploadFile(sourceImage);
-  await page.waitForSelector('#ai-schedule-image-preview:not(.hidden)');
+  try {
+    await page.waitForSelector('#ai-schedule-image-preview:not(.hidden)');
+  } catch (error) {
+    const uploadState = await page.evaluate(() => ({
+      fileCount: document.getElementById('ai-schedule-image')?.files?.length || 0,
+      previewClass: document.getElementById('ai-schedule-image-preview')?.className || '',
+      thumbnailLength: document.getElementById('ai-schedule-image-thumbnail')?.src?.length || 0
+    }));
+    throw new Error(`Image preview did not appear: ${JSON.stringify({ uploadState, errors, cause: error.message })}`);
+  }
   await page.screenshot({ path: path.join(outputDir, `ai-schedule-image-${name}.png`), fullPage: true });
   await page.click('#btn-analyze-ai-schedule');
   await page.waitForSelector('#ai-schedule-preview:not(.hidden)');
