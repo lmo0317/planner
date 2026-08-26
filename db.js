@@ -43,6 +43,17 @@ function enqueueMutation(operation) {
   return result;
 }
 
+function normalizeAttachments(value) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 6).map(item => ({
+    id: String(item?.id || '').slice(0, 100),
+    name: String(item?.name || '첨부 이미지').slice(0, 200),
+    url: String(item?.url || '').slice(0, 500),
+    mimeType: String(item?.mimeType || '').slice(0, 100),
+    size: Math.max(0, Number(item?.size) || 0)
+  })).filter(item => item.id && item.url.startsWith('/api/todo-attachments/'));
+}
+
 // CRUD Operations
 async function getAllTodos() {
   const db = await readDb();
@@ -72,6 +83,7 @@ async function createTodo(todoData) {
       dateReason: todoData.dateReason || '',
       evidence: todoData.evidence || '',
       confidence: Number.isFinite(todoData.confidence) ? todoData.confidence : null,
+      attachments: normalizeAttachments(todoData.attachments),
       createdAt: new Date().toISOString()
     };
     db.todos.push(newTodo);
@@ -85,7 +97,11 @@ async function updateTodo(id, updateData) {
     const db = await readDbUnlocked();
     const index = db.todos.findIndex(todo => todo.id === id);
     if (index === -1) return null;
-    db.todos[index] = { ...db.todos[index], ...updateData, id };
+    const normalizedUpdate = { ...updateData };
+    if (Object.prototype.hasOwnProperty.call(normalizedUpdate, 'attachments')) {
+      normalizedUpdate.attachments = normalizeAttachments(normalizedUpdate.attachments);
+    }
+    db.todos[index] = { ...db.todos[index], ...normalizedUpdate, id };
     await writeDb(db);
     return db.todos[index];
   });

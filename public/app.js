@@ -25,6 +25,9 @@ const taskForm = document.getElementById('task-form');
 const btnDeleteTask = document.getElementById('btn-delete-task');
 const btnSyncTaskGoogle = document.getElementById('btn-sync-task-google');
 const naverMapPlaceInput = document.getElementById('naver-map-place');
+const taskAttachmentsInput = document.getElementById('task-attachments-input');
+const btnTaskAttachments = document.getElementById('btn-task-attachments');
+const taskAttachmentsList = document.getElementById('task-attachments-list');
 const themeToggle = document.getElementById('theme-toggle');
 const viewSelectors = document.querySelectorAll('.nav-menu [data-view]');
 const searchInput = document.getElementById('search-input');
@@ -174,6 +177,7 @@ let kidsNoteEventsState = [];
 let kidsNoteSessionConnected = false;
 let kidsNoteSavedEventKeys = new Set();
 let editingNaverMapLink = '';
+let taskAttachmentsState = [];
 
 function isNaverMapUrl(value) {
   return /^https?:\/\/(?:(?:map|m\.map|app\.map|place|m\.place)\.naver\.com|naver\.me)(?:[/?#]|$)[^\s]*$/i.test(String(value || '').trim());
@@ -683,6 +687,8 @@ function setupEventListeners() {
   btnCancelModal.addEventListener('click', closeModal);
 
   taskForm.addEventListener('submit', handleFormSubmit);
+  btnTaskAttachments?.addEventListener('click', () => taskAttachmentsInput?.click());
+  taskAttachmentsInput?.addEventListener('change', () => selectTaskAttachments(taskAttachmentsInput.files));
   btnDeleteTask.addEventListener('click', handleDeleteTask);
   btnSyncTaskGoogle?.addEventListener('click', syncCurrentTaskToGoogle);
 
@@ -1652,6 +1658,7 @@ function createTodoListItem(todo) {
     appendLinkedContent(content, todo.content);
     details.appendChild(content);
   }
+  appendTodoAttachments(details, todo.attachments);
 
   item.appendChild(details);
 
@@ -1730,6 +1737,7 @@ function updateStats() {
 // Modal handling
 function openModal(todo = null, customStart = null, customEnd = null, returnState = null) {
   taskForm.reset();
+  taskAttachmentsState = Array.isArray(todo?.attachments) ? todo.attachments.map(attachment => ({ ...attachment })) : [];
   editingNaverMapLink = '';
   if (returnState) modalPageStack.push(returnState);
   else modalPageStack = [];
@@ -1755,6 +1763,7 @@ function openModal(todo = null, customStart = null, customEnd = null, returnStat
         : (!googleCalendarSelected ? '동기화 캘린더 선택' : (googleSyncedTodoIds.has(String(todo.id)) ? 'Google에 수정 반영' : 'Google에 올리기'));
     }
     taskForm.querySelectorAll('input:not(#task-id), textarea').forEach(field => { field.disabled = isGoogleEvent; });
+    if (btnTaskAttachments) btnTaskAttachments.disabled = isGoogleEvent;
     document.getElementById('btn-save-task').classList.toggle('hidden', isGoogleEvent);
   } else {
     // Create Mode
@@ -1770,9 +1779,11 @@ function openModal(todo = null, customStart = null, customEnd = null, returnStat
     btnDeleteTask.classList.add('hidden');
     btnSyncTaskGoogle?.classList.add('hidden');
     taskForm.querySelectorAll('input:not(#task-id), textarea').forEach(field => { field.disabled = false; });
+    if (btnTaskAttachments) btnTaskAttachments.disabled = false;
     document.getElementById('btn-save-task').classList.remove('hidden');
   }
 
+  renderTaskAttachments();
   taskModal.classList.add('open');
   lucide.createIcons();
 }
@@ -1815,6 +1826,7 @@ async function handleFormSubmit(e) {
   }
 
   try {
+    taskData.attachments = await uploadPendingTaskAttachments();
     let response;
     if (id) {
       // Update
@@ -2489,6 +2501,105 @@ function resizeAiScheduleImage(file) {
   });
 }
 
+function resolveTodoAttachmentUrl(url) {
+  const value = String(url || '');
+  if (/^https?:\/\//i.test(value)) return value;
+  if (location.protocol === 'file:') return `https://minohlee.mooo.com${value.startsWith('/') ? value : `/${value}`}`;
+  return value;
+}
+
+function createAttachmentPreview(attachment, removable = false, index = -1) {
+  const item = document.createElement('div');
+  item.className = 'task-attachment-item';
+  const link = document.createElement('a');
+  link.className = 'task-attachment-link';
+  link.href = attachment.dataUrl || resolveTodoAttachmentUrl(attachment.url);
+  link.target = '_blank';
+  link.rel = 'noopener';
+  link.addEventListener('click', event => event.stopPropagation());
+  const image = document.createElement('img');
+  image.className = 'task-attachment-image';
+  image.src = link.href;
+  image.alt = attachment.name || '일정 첨부 이미지';
+  const name = document.createElement('span');
+  name.className = 'task-attachment-name';
+  name.textContent = attachment.name || '첨부 이미지';
+  link.append(image, name);
+  item.appendChild(link);
+  if (removable) {
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'task-attachment-remove';
+    remove.setAttribute('aria-label', `${name.textContent} 삭제`);
+    remove.innerHTML = '<i data-lucide="x"></i>';
+    remove.addEventListener('click', () => {
+      taskAttachmentsState.splice(index, 1);
+      renderTaskAttachments();
+    });
+    item.appendChild(remove);
+  }
+  return item;
+}
+
+function renderTaskAttachments() {
+  if (!taskAttachmentsList) return;
+  taskAttachmentsList.innerHTML = '';
+  taskAttachmentsState.forEach((attachment, index) => taskAttachmentsList.appendChild(createAttachmentPreview(attachment, !btnTaskAttachments?.disabled, index)));
+  taskAttachmentsList.classList.toggle('hidden', taskAttachmentsState.length === 0);
+  lucide.createIcons();
+}
+
+function appendTodoAttachments(container, attachments) {
+  if (!Array.isArray(attachments) || attachments.length === 0) return;
+  const list = document.createElement('div');
+  list.className = 'todo-attachments';
+  attachments.forEach(attachment => list.appendChild(createAttachmentPreview(attachment)));
+  container.appendChild(list);
+}
+
+async function selectTaskAttachments(fileList) {
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+  const remaining = 6 - taskAttachmentsState.length;
+  if (remaining <= 0) {
+    showToast('이미지는 최대 6장까지 첨부할 수 있습니다.', 'danger');
+    return;
+  }
+  try {
+    for (const file of files.slice(0, remaining)) {
+      if (!/^image\/(jpeg|png|webp|gif)$/i.test(file.type) || file.size > 15 * 1024 * 1024) {
+        throw new Error('JPG, PNG, WEBP, GIF 형식의 15MB 이하 이미지를 선택해 주세요.');
+      }
+      taskAttachmentsState.push({ pending: true, name: file.name, dataUrl: await resizeAiScheduleImage(file) });
+    }
+    if (files.length > remaining) showToast('이미지는 최대 6장까지만 첨부됩니다.', 'danger');
+    renderTaskAttachments();
+  } catch (error) {
+    showToast(error.message, 'danger');
+  } finally {
+    if (taskAttachmentsInput) taskAttachmentsInput.value = '';
+  }
+}
+
+async function uploadTodoAttachment(dataUrl, fileName) {
+  const response = await fetch('/api/todo-attachments', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ imageDataUrl: dataUrl, fileName })
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || '이미지 첨부를 저장하지 못했습니다.');
+  return result;
+}
+
+async function uploadPendingTaskAttachments() {
+  const uploaded = await Promise.all(taskAttachmentsState.map(attachment => attachment.pending
+    ? uploadTodoAttachment(attachment.dataUrl, attachment.name)
+    : attachment));
+  taskAttachmentsState = uploaded;
+  return uploaded;
+}
+
 async function selectAiScheduleImage(file) {
   if (!file) return;
   if (!/^image\/(jpeg|png|webp|gif)$/i.test(file.type)) {
@@ -2967,10 +3078,13 @@ async function saveAiSchedules() {
 
   btnSaveAiSchedules.disabled = true;
   try {
+    const sourceAttachment = aiScheduleInputMode === 'image' && aiScheduleImageDataUrl
+      ? await uploadTodoAttachment(aiScheduleImageDataUrl, aiScheduleImageFileName || 'AI 일정 원본 이미지.jpg')
+      : null;
     const responses = await Promise.all(selectedTasks.map(task => fetch('/api/todos', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(task)
+      body: JSON.stringify(sourceAttachment ? { ...task, attachments: [sourceAttachment] } : task)
     })));
     if (responses.some(response => !response.ok)) throw new Error('일부 일정을 등록하지 못했습니다.');
 

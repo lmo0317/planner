@@ -22,6 +22,8 @@ async function createSourceImage(browser) {
 async function verifyPage(browser, name, route, viewport) {
   const page = await browser.newPage();
   let imagePayload = null;
+  const attachmentPayloads = [];
+  const createdTodos = [];
   const errors = [];
   page.on('console', message => {
     if (message.type() === 'error') errors.push(message.text());
@@ -45,6 +47,28 @@ async function verifyPage(browser, name, route, viewport) {
           clarification: ''
         })
       });
+      return;
+    }
+    if (request.url().endsWith('/api/todo-attachments') && request.method() === 'POST') {
+      const payload = JSON.parse(request.postData());
+      attachmentPayloads.push(payload);
+      request.respond({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: `${attachmentPayloads.length}`.padStart(48, 'a') + '.jpg',
+          name: payload.fileName,
+          url: `/api/todo-attachments/${`${attachmentPayloads.length}`.padStart(48, 'a')}.jpg`,
+          mimeType: 'image/jpeg',
+          size: 1234
+        })
+      });
+      return;
+    }
+    if (request.url().endsWith('/api/todos') && request.method() === 'POST') {
+      const payload = JSON.parse(request.postData());
+      createdTodos.push(payload);
+      request.respond({ status: 201, contentType: 'application/json', body: JSON.stringify({ ...payload, id: `smoke-${createdTodos.length}` }) });
       return;
     }
     request.continue();
@@ -87,14 +111,37 @@ async function verifyPage(browser, name, route, viewport) {
     })()
   }));
   await page.screenshot({ path: path.join(outputDir, `ai-schedule-image-${name}-preview.png`), fullPage: true });
+
+  await page.click('#btn-save-ai-schedules');
+  await page.waitForFunction(() => !document.getElementById('ai-schedule-modal').classList.contains('open'));
+  await page.evaluate(() => openModal(null, '2026-09-04T09:00', '2026-09-04T10:00'));
+  await page.type('#task-title', '일반 첨부 일정');
+  const taskAttachmentInput = await page.$('#task-attachments-input');
+  await taskAttachmentInput.uploadFile(sourceImage);
+  await page.waitForSelector('#task-attachments-list:not(.hidden) .task-attachment-image');
+  const taskAttachmentPreview = await page.$eval('#task-attachments-list .task-attachment-image', image => image.src.startsWith('data:image/jpeg;base64,'));
+  await page.$eval('#task-form', form => form.requestSubmit());
+  try {
+    await page.waitForFunction(() => !document.getElementById('task-modal').classList.contains('open'), { timeout: 10000 });
+  } catch (error) {
+    const formState = await page.evaluate(() => ({
+      title: document.getElementById('task-title')?.value,
+      start: document.getElementById('task-start-date')?.value,
+      end: document.getElementById('task-end-date')?.value,
+      toast: document.getElementById('toast')?.textContent,
+      attachmentCount: document.querySelectorAll('#task-attachments-list .task-attachment-item').length
+    }));
+    throw new Error(`Task modal did not close: ${JSON.stringify({ formState, attachmentCount: attachmentPayloads.length, todoCount: createdTodos.length, errors, cause: error.message })}`);
+  }
   await page.close();
 
   const withinViewport = state.modalRect.left >= 0 && state.modalRect.right <= viewport.width &&
     state.modalRect.top >= 0 && state.modalRect.bottom <= viewport.height;
   const passed = state.imageModeSelected === 'true' && state.recommendationsRemoved && state.title.includes('학부모 공개수업') &&
     state.selectedCount === '1' && imagePayload?.imageDataUrl?.startsWith('data:image/jpeg;base64,') &&
-    Boolean(imagePayload?.baseDate) && !state.horizontalOverflow && withinViewport && errors.length === 0;
-  console.log(`${passed ? 'PASS' : 'FAIL'} ${name} ${JSON.stringify({ ...state, payload: Boolean(imagePayload), withinViewport, errors })}`);
+    Boolean(imagePayload?.baseDate) && taskAttachmentPreview && attachmentPayloads.length === 2 && createdTodos.length === 2 &&
+    createdTodos.every(todo => todo.attachments?.length === 1) && !state.horizontalOverflow && withinViewport && errors.length === 0;
+  console.log(`${passed ? 'PASS' : 'FAIL'} ${name} ${JSON.stringify({ ...state, payload: Boolean(imagePayload), attachments: attachmentPayloads.length, attachedTodos: createdTodos.filter(todo => todo.attachments?.length).length, withinViewport, errors })}`);
   return passed;
 }
 

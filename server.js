@@ -34,6 +34,8 @@ const GOOGLE_CALENDAR_TIME_ZONE = 'Asia/Seoul';
 const GOOGLE_CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar';
 const GOOGLE_CALENDAR_FALLBACK_NAME = '기본 캘린더';
 const SCHEDULE_OCR_CACHE_DIR = path.join(__dirname, 'data', 'tesseract-cache');
+const TODO_ATTACHMENT_DIR = path.join(__dirname, 'data', 'todo-attachments');
+const TODO_ATTACHMENT_MAX_BYTES = 6 * 1024 * 1024;
 const kidsNoteAnalysisJobs = new Map();
 let googleCalendarSyncQueue = Promise.resolve();
 let timeTreeSyncQueue = Promise.resolve();
@@ -362,6 +364,45 @@ app.get('/api/todos/:id', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: 'Failed to retrieve task', details: err.message });
   }
+});
+
+app.post('/api/todo-attachments', async (req, res) => {
+  try {
+    const match = String(req.body?.imageDataUrl || '').match(/^data:(image\/(?:jpeg|png|webp|gif));base64,([A-Za-z0-9+/=]+)$/);
+    if (!match) return res.status(400).json({ error: '지원하는 이미지 파일을 선택해 주세요.' });
+
+    const buffer = Buffer.from(match[2], 'base64');
+    if (!buffer.length || buffer.length > TODO_ATTACHMENT_MAX_BYTES) {
+      return res.status(413).json({ error: '이미지는 한 장당 6MB 이하만 첨부할 수 있습니다.' });
+    }
+
+    const extensions = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' };
+    const mimeType = match[1].toLowerCase();
+    const id = `${crypto.randomBytes(24).toString('hex')}.${extensions[mimeType]}`;
+    await fs.promises.mkdir(TODO_ATTACHMENT_DIR, { recursive: true });
+    await fs.promises.writeFile(path.join(TODO_ATTACHMENT_DIR, id), buffer, { flag: 'wx' });
+    const originalName = path.basename(String(req.body?.fileName || '일정 이미지')).replace(/[\u0000-\u001f]/g, '').slice(0, 200) || '일정 이미지';
+    res.status(201).json({
+      id,
+      name: originalName,
+      url: `/api/todo-attachments/${id}`,
+      mimeType,
+      size: buffer.length
+    });
+  } catch (err) {
+    res.status(500).json({ error: '이미지 첨부를 저장하지 못했습니다.', details: err.message });
+  }
+});
+
+app.get('/api/todo-attachments/:fileName', (req, res) => {
+  const fileName = String(req.params.fileName || '');
+  if (!/^[a-f0-9]{48}\.(?:jpg|png|webp|gif)$/.test(fileName)) {
+    return res.status(404).json({ error: '첨부 이미지를 찾을 수 없습니다.' });
+  }
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  res.sendFile(fileName, { root: TODO_ATTACHMENT_DIR }, err => {
+    if (err && !res.headersSent) res.status(err.statusCode || 404).json({ error: '첨부 이미지를 찾을 수 없습니다.' });
+  });
 });
 
 app.post('/api/todos', async (req, res) => {

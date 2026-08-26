@@ -333,6 +333,18 @@ button { cursor: pointer; }
 .modal-content h2 { margin: 0 48px 16px 0; font-size: 1.45rem; letter-spacing: -.035em; }
 .close-modal { position: absolute; top: max(14px, env(safe-area-inset-top)); right: 14px; z-index: 2; display: inline-flex; width: 44px; height: 44px; align-items: center; justify-content: center; border: 0; border-radius: 50%; background: transparent; color: #89948f; }
 .form-group { margin-bottom: 15px; }
+.task-attachments-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.task-attachments-heading span, .task-attachments-help { margin: 0; color: var(--muted); font-size: .76rem; }
+.task-attachments-button { display: flex; width: 100%; align-items: center; justify-content: center; gap: 7px; }
+.task-attachments-button svg { width: 17px; height: 17px; }
+.task-attachments-list, .todo-attachments { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.task-attachment-item { position: relative; min-width: 0; }
+.task-attachment-link { display: block; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: #f4f7f5; }
+.task-attachment-image { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; }
+.task-attachment-name { display: block; overflow: hidden; padding: 5px 6px; color: var(--muted); font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
+.task-attachment-remove { position: absolute; top: 4px; right: 4px; display: grid; width: 28px; height: 28px; padding: 0; place-items: center; border: 0; border-radius: 50%; color: #fff; background: rgba(20,25,23,.78); }
+.task-attachment-remove svg { width: 15px; height: 15px; }
+.todo-attachments { margin-top: 8px; }
 .form-group label, .ai-input-label { display: block; margin-bottom: 7px; color: #64716b; font-size: .84rem; font-weight: 750; }
 .form-group input, .form-group textarea, .form-group select,
 .google-calendar-share-controls input, .google-calendar-share-controls select {

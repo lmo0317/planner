@@ -376,6 +376,13 @@
       });
     }
 
+    if (pathname === '/api/todo-attachments' && method === 'POST') {
+      return new Response(JSON.stringify({ error: '이미지 첨부 저장은 인터넷 연결이 필요합니다.' }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
     // GET /api/holidays
     if (pathname === '/api/holidays' && method === 'GET') {
       const year = parseInt(url.searchParams.get('year') || new Date().getFullYear(), 10);

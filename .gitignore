@@ -5,6 +5,7 @@ data/photo-backups/
 data/kidsnote-sessions.json
 data/kidsnote-sessions.json.tmp
 data/tesseract-cache/
+data/todo-attachments/
 /test-artifacts/
 /*.traineddata
 __pycache__/

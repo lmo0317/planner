@@ -2319,6 +2319,25 @@ select {
   flex: 1;
 }
 
+.task-attachments-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.task-attachments-heading span, .task-attachments-help { margin: 0; color: var(--text-muted); font-size: .78rem; }
+.task-attachments-button { align-self: flex-start; display: inline-flex; align-items: center; gap: 7px; }
+.task-attachments-button svg { width: 17px; height: 17px; }
+.task-attachments-list, .todo-attachments { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 10px; }
+.task-attachment-item { position: relative; min-width: 0; }
+.task-attachment-link { display: block; overflow: hidden; border: 1px solid var(--border-color); border-radius: 12px; background: rgba(255,255,255,.5); }
+.task-attachment-image { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; }
+.task-attachment-name { display: block; overflow: hidden; padding: 6px 7px; color: var(--text-secondary); font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; }
+.task-attachment-remove { position: absolute; top: 5px; right: 5px; display: grid; width: 28px; height: 28px; padding: 0; place-items: center; border: 0; border-radius: 50%; color: #fff; background: rgba(20,25,23,.78); cursor: pointer; }
+.task-attachment-remove svg { width: 15px; height: 15px; }
+.todo-attachments { grid-template-columns: repeat(auto-fill, minmax(72px, 96px)); margin-top: 8px; }
+.todo-attachments .task-attachment-link { cursor: zoom-in; }
+
+@media (max-width: 600px) {
+  .task-attachments-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .task-attachments-button { width: 100%; justify-content: center; }
+}
+
 label {
   font-size: 0.85rem;
   font-weight: 500;

@@ -21,7 +21,7 @@
   <!-- Lucide Icons CDN -->
   <script src="vendor/lucide.min.js"></script>
   <!-- Tailwind/Vanilla CSS -->
-  <link rel="stylesheet" href="style.css?v=20260825-kidsnote-progress-v2">
+  <link rel="stylesheet" href="style.css?v=20260826-todo-attachments">
 </head>
 <body class="light-theme">
   <div class="glow-bg">
@@ -290,6 +290,19 @@
           <textarea id="task-content" rows="4" placeholder="메모할 세부 내용을 입력하세요..."></textarea>
         </div>
 
+        <div class="form-group task-attachments-field">
+          <div class="task-attachments-heading">
+            <label for="task-attachments-input">첨부 이미지</label>
+            <span>최대 6장</span>
+          </div>
+          <input type="file" id="task-attachments-input" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden>
+          <button type="button" id="btn-task-attachments" class="btn btn-secondary task-attachments-button">
+            <i data-lucide="image-plus"></i> 이미지 첨부
+          </button>
+          <div id="task-attachments-list" class="task-attachments-list" aria-live="polite"></div>
+          <p class="task-attachments-help">선택한 이미지는 일정에 첨부되어 저장됩니다.</p>
+        </div>
+
         <div class="modal-footer">
           <button type="button" id="btn-sync-task-google" class="btn btn-google-task hidden">
             <i data-lucide="upload-cloud"></i> Google에 올리기
@@ -486,7 +499,7 @@
     </div>
   </div>
 
-  <script src="offline-storage.js?v=20260825-kidsnote-session-v2"></script>
-  <script src="app.js?v=20260825-kidsnote-progress-v2"></script>
+  <script src="offline-storage.js?v=20260826-todo-attachments"></script>
+  <script src="app.js?v=20260826-todo-attachments"></script>
 </body>
 </html>
