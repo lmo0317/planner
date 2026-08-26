@@ -16,6 +16,7 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.ValueCallback;
 import androidx.appcompat.app.AppCompatActivity;
 import com.google.android.gms.auth.api.identity.AuthorizationRequest;
 import com.google.android.gms.auth.api.identity.AuthorizationResult;
@@ -47,7 +48,9 @@ public class MainActivity extends AppCompatActivity {
     private static final String API_BASE_URL = "https://minohlee.mooo.com";
     private static final int GOOGLE_AUTH_REQUEST = 4107;
     private static final int GOOGLE_SIGN_IN_REQUEST = 4109;
+    private static final int IMAGE_FILE_CHOOSER_REQUEST = 4110;
     private WebView webView;
+    private ValueCallback<Uri[]> imageFilePathCallback;
     private final ExecutorService networkExecutor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean googleLoginInProgress = new AtomicBoolean(false);
     private final AtomicBoolean googleRestoreAttempted = new AtomicBoolean(false);
@@ -93,7 +96,25 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        webView.setWebChromeClient(new WebChromeClient());
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
+                if (imageFilePathCallback != null) imageFilePathCallback.onReceiveValue(null);
+                imageFilePathCallback = filePathCallback;
+                Intent picker = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                picker.addCategory(Intent.CATEGORY_OPENABLE);
+                picker.setType("image/*");
+                try {
+                    startActivityForResult(picker, IMAGE_FILE_CHOOSER_REQUEST);
+                    return true;
+                } catch (Exception error) {
+                    Log.e(TAG, "이미지 선택 화면을 열지 못했습니다.", error);
+                    imageFilePathCallback.onReceiveValue(null);
+                    imageFilePathCallback = null;
+                    return false;
+                }
+            }
+        });
         webView.addJavascriptInterface(new NativePlannerBridge(), "NativePlanner");
 
         // Load mobile planner interface from local assets
@@ -307,6 +328,14 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == IMAGE_FILE_CHOOSER_REQUEST) {
+            if (imageFilePathCallback != null) {
+                Uri[] result = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
+                imageFilePathCallback.onReceiveValue(result);
+                imageFilePathCallback = null;
+            }
+            return;
+        }
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == GOOGLE_SIGN_IN_REQUEST) {
             if (data == null) {
