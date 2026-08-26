@@ -3327,21 +3327,87 @@ textarea:focus {
   box-shadow: none;
 }
 
+.ai-input-mode-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin: 0 0 18px;
+  padding: 5px;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.ai-input-mode {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: .86rem;
+  font-weight: 750;
+}
+
+.ai-input-mode svg { width: 17px; height: 17px; }
+.ai-input-mode.is-active { background: var(--bg-card); color: var(--primary); box-shadow: 0 3px 12px rgba(0, 0, 0, .16); }
+.ai-input-source-panel.hidden { display: none !important; }
+.visually-hidden { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; overflow: hidden !important; clip: rect(0, 0, 0, 0) !important; white-space: nowrap !important; border: 0 !important; }
+
+.ai-image-picker {
+  display: flex;
+  width: 100%;
+  min-height: 170px;
+  padding: 24px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px dashed var(--primary);
+  border-radius: 16px;
+  background: rgba(16, 185, 129, .07);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+}
+
+.ai-image-picker:hover { background: rgba(16, 185, 129, .12); }
+.ai-image-picker svg { width: 34px; height: 34px; color: var(--primary); }
+.ai-image-picker strong { color: var(--text-primary); font-size: 1rem; }
+.ai-image-picker span, .ai-image-privacy, .ai-image-preview span { color: var(--text-muted); font-size: .78rem; line-height: 1.45; }
+.ai-image-preview { display: grid; grid-template-columns: 72px minmax(0, 1fr) auto; gap: 12px; margin-top: 10px; padding: 10px; align-items: center; border: 1px solid var(--border-color); border-radius: 13px; background: var(--bg-card); }
+.ai-image-preview.hidden { display: none !important; }
+.ai-image-preview img { width: 72px; height: 58px; border-radius: 9px; object-fit: cover; }
+.ai-image-preview div { display: grid; min-width: 0; gap: 3px; }
+.ai-image-preview strong { overflow: hidden; color: var(--text-primary); font-size: .84rem; text-overflow: ellipsis; white-space: nowrap; }
+.ai-image-privacy { display: flex; margin: 10px 2px 0; align-items: center; gap: 6px; }
+.ai-image-privacy svg { width: 15px; height: 15px; flex: 0 0 auto; color: var(--success); }
+
 .bottom-sheet-handle {
   display: none;
 }
 
 .ai-example-list {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
   gap: 8px;
-  margin-top: -4px;
+  width: 100%;
+  margin: 4px 0 18px;
 }
 
 .ai-example-list > span {
+  grid-column: 1 / -1;
+  display: block;
   color: var(--text-muted);
   font-size: 0.78rem;
+  font-weight: 750;
+  line-height: 1.35;
 }
 
 .ai-example-chip,
@@ -3472,6 +3538,17 @@ textarea:focus {
 
 .kidsnote-connection-status.hidden {
   display: none;
+}
+
+.ai-example-chip {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+  text-align: center;
 }
 
 .kidsnote-connection-status.disconnected {

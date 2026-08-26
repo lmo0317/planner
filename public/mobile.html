@@ -365,26 +365,43 @@
     <div class="modal-content glass ai-schedule-modal-content">
       <span class="close-modal" id="close-ai-schedule-modal"><i data-lucide="x"></i></span>
       <h2>AI 일정 추가</h2>
-      <p class="ai-schedule-guide">자연어 텍스트를 분석하여 일정 제목, 날짜, 시간, 카테고리를 자동으로 입력합니다.</p>
+      <p class="ai-schedule-guide">텍스트를 입력하거나 일정 안내 이미지를 올리면 등록할 일정을 찾아드립니다.</p>
 
       <div id="ai-schedule-input-panel">
-        <div class="form-group">
+        <div class="ai-input-mode-tabs" role="tablist" aria-label="AI 일정 입력 방식">
+          <button type="button" class="ai-input-mode is-active" data-ai-input-mode="text" role="tab" aria-selected="true"><i data-lucide="text-cursor-input"></i><span>텍스트로 추가</span></button>
+          <button type="button" class="ai-input-mode" data-ai-input-mode="image" role="tab" aria-selected="false"><i data-lucide="image-plus"></i><span>이미지로 추가</span></button>
+        </div>
+        <div id="ai-schedule-text-panel" class="form-group ai-input-source-panel">
           <label for="ai-schedule-text" class="ai-input-label">
             <span>자연어로 일정 입력</span>
           </label>
           <textarea id="ai-schedule-text" rows="4" placeholder="예: 내일 오후 3시 강남역에서 영희랑 팀 미팅 / 다음 주 화요일 오전 10시 치과 예약"></textarea>
+          <div class="ai-example-list">
+            <span>추천 예시:</span>
+            <button type="button" class="ai-example-chip" data-text="내일 오후 2시 디자인 리뷰 회의">내일 14:00 디자인 리뷰</button>
+            <button type="button" class="ai-example-chip" data-text="매주 목요일 오전 10시 주간 스크럼">매주 목 10:00 스크럼</button>
+            <button type="button" class="ai-example-chip" data-text="이번 주 금요일 저녁 7시 회식 장소 강남">금요일 19:00 회식</button>
+          </div>
         </div>
-        <div class="ai-example-list">
-          <span>추천 예시:</span>
-          <button type="button" class="ai-example-chip" data-text="내일 오후 2시 디자인 리뷰 회의">내일 14:00 디자인 리뷰</button>
-          <button type="button" class="ai-example-chip" data-text="매주 목요일 오전 10시 주간 스크럼">매주 목 10:00 스크럼</button>
-          <button type="button" class="ai-example-chip" data-text="이번 주 금요일 저녁 7시 회식 장소 강남">금요일 19:00 회식</button>
+        <div id="ai-schedule-image-panel" class="ai-input-source-panel hidden">
+          <input id="ai-schedule-image" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp,image/gif" />
+          <button type="button" id="btn-ai-schedule-image" class="ai-image-picker">
+            <i data-lucide="image-plus"></i><strong>일정 안내 이미지 선택</strong>
+            <span>사진, 캡처 이미지에서 날짜와 시간을 인식합니다.</span>
+          </button>
+          <div id="ai-schedule-image-preview" class="ai-image-preview hidden">
+            <img id="ai-schedule-image-thumbnail" alt="선택한 일정 이미지 미리보기" />
+            <div><strong id="ai-schedule-image-name"></strong><span>이미지를 바꾸려면 다시 눌러 주세요.</span></div>
+            <button type="button" id="btn-remove-ai-schedule-image" class="btn-text" aria-label="선택 이미지 삭제">삭제</button>
+          </div>
+          <p class="ai-image-privacy"><i data-lucide="shield-check"></i> 이미지는 일정 인식에만 사용하며 서버에 파일로 저장하지 않습니다.</p>
         </div>
       </div>
 
       <div id="ai-schedule-loading" class="import-state-panel hidden" role="status" aria-live="polite">
         <div class="spinner"></div>
-        <p>AI가 일정을 분석하고 있습니다...</p>
+        <p id="ai-schedule-loading-text">AI가 일정을 분석하고 있습니다...</p>
       </div>
 
       <div id="ai-schedule-preview" class="hidden">

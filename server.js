@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const https = require('https');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
+const { createWorker, OEM } = require('tesseract.js');
 const db = require('./db');
 
 const execFileAsync = promisify(execFile);
@@ -15,6 +16,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const LLM_BASE_URL = (process.env.LLM_BASE_URL || 'http://minohlee.mooo.com:8081').replace(/\/$/, '');
 const LLM_MODEL = process.env.LLM_MODEL || 'gemma-4-e4b-it-q4km';
+const LLM_VISION_MODEL = process.env.LLM_VISION_MODEL || '';
 const LLM_TIMEOUT_MS = Math.max(5000, Number(process.env.LLM_TIMEOUT_MS) || 60000);
 const KIDSNOTE_SESSION_SECRET = process.env.KIDSNOTE_SESSION_SECRET || '';
 const KIDSNOTE_SESSION_COOKIE = 'planner_kidsnote_session';
@@ -31,11 +33,31 @@ const GOOGLE_CALENDAR_RETURN_COOKIE = 'planner_google_calendar_return';
 const GOOGLE_CALENDAR_TIME_ZONE = 'Asia/Seoul';
 const GOOGLE_CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar';
 const GOOGLE_CALENDAR_FALLBACK_NAME = '기본 캘린더';
+const SCHEDULE_OCR_CACHE_DIR = path.join(__dirname, 'data', 'tesseract-cache');
 const kidsNoteAnalysisJobs = new Map();
 let googleCalendarSyncQueue = Promise.resolve();
 let timeTreeSyncQueue = Promise.resolve();
+let scheduleOcrWorkerPromise;
+let scheduleOcrQueue = Promise.resolve();
 
 let koreanHolidayModulePromise;
+
+async function recognizeScheduleImageText(imageBuffer) {
+  if (!scheduleOcrWorkerPromise) {
+    fs.mkdirSync(SCHEDULE_OCR_CACHE_DIR, { recursive: true });
+    scheduleOcrWorkerPromise = createWorker('kor+eng', OEM.LSTM_ONLY, { cachePath: SCHEDULE_OCR_CACHE_DIR }).catch(error => {
+      scheduleOcrWorkerPromise = null;
+      throw error;
+    });
+  }
+  const job = scheduleOcrQueue.then(async () => {
+    const worker = await scheduleOcrWorkerPromise;
+    const result = await worker.recognize(imageBuffer);
+    return String(result?.data?.text || '').trim();
+  });
+  scheduleOcrQueue = job.catch(() => undefined);
+  return job;
+}
 
 function getGoogleCalendarConfig() {
   return {
@@ -2319,6 +2341,140 @@ Return one JSON object containing events and clarification. Return no prose or m
   } catch (err) {
     console.error('Natural language schedule parse error:', err);
     res.status(500).json({ error: 'Failed to parse natural-language schedule', details: err.message });
+  }
+});
+
+// Read schedule details directly from an uploaded image without persisting the file.
+app.post('/api/todos/parse-schedule-image', async (req, res) => {
+  const { imageDataUrl, baseDate } = req.body;
+  if (!imageDataUrl || typeof imageDataUrl !== 'string') {
+    return res.status(400).json({ error: '일정 이미지를 선택해 주세요.' });
+  }
+
+  const imageMatch = imageDataUrl.match(/^data:(image\/(?:jpeg|png|webp|gif));base64,([A-Za-z0-9+/=]+)$/i);
+  if (!imageMatch) {
+    return res.status(400).json({ error: '지원하지 않는 이미지 형식입니다.' });
+  }
+  const estimatedBytes = Math.floor(imageMatch[2].length * 3 / 4);
+  if (estimatedBytes > 6 * 1024 * 1024) {
+    return res.status(400).json({ error: '이미지가 너무 큽니다. 더 작은 이미지를 선택해 주세요.' });
+  }
+
+  const referenceDate = baseDate || new Date().toISOString();
+  const imageSchedulePrompt = `You inspect a Korean image and convert only visible schedule information into calendar events for review.
+Current reference time: ${referenceDate}
+
+RULES:
+1. Read the image carefully, including headings, tables, notices, dates, weekdays, and times. Ignore decorative text and non-schedule content.
+2. Extract every independent event that has enough information to create a useful calendar entry.
+3. Preserve the actual event name and important details such as location, preparation, scope, and deadline in title/content. Never invent information.
+4. Resolve relative dates from the current reference time. If a year is omitted, choose the nearest reasonable occurrence on or after the reference date unless the image clearly indicates a past context.
+5. If no time is visible for an event, set allDay to true and use 00:00:00 through 23:59:59. If a start time is visible but no end time, use one hour.
+6. startDate and endDate must be ISO 8601 with the same timezone offset as the reference time.
+7. A multi-day range is one event from the first day to the last day, not one event per day.
+8. category: work for company/business, study for classes/exams/assignments, personal for health/family/friends/leisure, otherwise general.
+9. priority is medium unless the image supports high or low. confidence is 0 to 1; omit events below 0.65.
+10. dateReason must briefly explain in Korean which visible date/time was used.
+11. recognizedText is a concise transcription of the schedule-relevant Korean text used for extraction.
+12. clarification is only a question the user must answer when essential date information is genuinely ambiguous; otherwise return an empty string.
+
+Return one JSON object containing events, recognizedText, and clarification. Return no prose or markdown.`;
+
+  const imageScheduleSchema = {
+    type: 'object',
+    properties: {
+      events: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            title: { type: 'string' },
+            content: { type: 'string' },
+            startDate: { type: 'string' },
+            endDate: { type: 'string' },
+            allDay: { type: 'boolean' },
+            priority: { type: 'string', enum: ['low', 'medium', 'high'] },
+            category: { type: 'string', enum: ['work', 'personal', 'study', 'general'] },
+            dateReason: { type: 'string' },
+            confidence: { type: 'number' }
+          },
+          required: ['title', 'content', 'startDate', 'endDate', 'allDay', 'priority', 'category', 'dateReason', 'confidence'],
+          additionalProperties: false
+        }
+      },
+      recognizedText: { type: 'string' },
+      clarification: { type: 'string' }
+    },
+    required: ['events', 'recognizedText', 'clarification'],
+    additionalProperties: false
+  };
+
+  try {
+    const requestScheduleCompletion = (model, userContent) => fetch(`${LLM_BASE_URL}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: imageSchedulePrompt },
+          { role: 'user', content: userContent }
+        ],
+        temperature: 0,
+        max_tokens: 1600,
+        response_format: {
+          type: 'json_schema',
+          json_schema: { name: 'image_schedule_events', strict: true, schema: imageScheduleSchema }
+        }
+      })
+    });
+
+    let response = LLM_VISION_MODEL ? await requestScheduleCompletion(LLM_VISION_MODEL, [
+      { type: 'text', text: '이 이미지에서 등록할 일정을 찾아 주세요.' },
+      { type: 'image_url', image_url: { url: imageDataUrl } }
+    ]) : null;
+    let ocrText = '';
+
+    if (!response?.ok) {
+      if (response) {
+        const details = await response.text();
+        console.warn(`Schedule image vision unavailable ${response.status}; using OCR fallback: ${details.slice(0, 300)}`);
+      }
+      ocrText = await recognizeScheduleImageText(Buffer.from(imageMatch[2], 'base64'));
+      if (ocrText.length < 4) {
+        return res.status(422).json({ error: '이미지에서 읽을 수 있는 일정 문구를 찾지 못했습니다.' });
+      }
+      response = await requestScheduleCompletion(LLM_MODEL, `다음은 일정 안내 이미지에서 OCR로 읽은 텍스트입니다. 오탈자를 문맥에 맞게 보정하되 보이지 않은 정보는 만들지 마세요.\n\n${ocrText}`);
+      if (!response.ok) {
+        const fallbackDetails = await response.text();
+        console.error(`Schedule image OCR LLM error ${response.status}: ${fallbackDetails}`);
+        return res.status(502).json({ error: '이미지에서 읽은 일정 문구를 분석하지 못했습니다.' });
+      }
+    }
+
+    const data = await response.json();
+    const parsed = JSON.parse(data.choices[0].message.content.trim());
+    const recognizedText = String(parsed.recognizedText || ocrText || '').trim();
+    const fallbackTitle = recognizedText ? deriveNaturalScheduleTitle(recognizedText) : '이미지 일정';
+    const normalizedEvents = (parsed.events || [])
+      .map((event, index) => normalizeExtractedEvent({
+        ...event,
+        title: isNaturalSchedulePlaceholder(event.title) ? fallbackTitle : event.title,
+        content: isNaturalSchedulePlaceholder(event.content) ? '' : event.content,
+        status: 'active',
+        candidateId: index + 1,
+        evidence: recognizedText || '업로드된 일정 안내 이미지'
+      }, referenceDate))
+      .filter(Boolean);
+
+    res.json({
+      events: deduplicateEvents(normalizedEvents),
+      recognizedText,
+      clarification: String(parsed.clarification || '').trim()
+    });
+  } catch (error) {
+    console.error('Schedule image parse error:', error);
+    res.status(500).json({ error: '이미지 일정 분석 중 오류가 발생했습니다.', details: error.message });
   }
 });
 

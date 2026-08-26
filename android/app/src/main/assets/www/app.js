@@ -126,6 +126,15 @@ const aiScheduleList = document.getElementById('ai-schedule-list');
 const aiScheduleCount = document.getElementById('ai-schedule-count');
 const aiSelectedCount = document.getElementById('ai-selected-count');
 const aiScheduleClarification = document.getElementById('ai-schedule-clarification');
+const aiScheduleTextPanel = document.getElementById('ai-schedule-text-panel');
+const aiScheduleImagePanel = document.getElementById('ai-schedule-image-panel');
+const aiScheduleImage = document.getElementById('ai-schedule-image');
+const btnAiScheduleImage = document.getElementById('btn-ai-schedule-image');
+const btnRemoveAiScheduleImage = document.getElementById('btn-remove-ai-schedule-image');
+const aiScheduleImagePreview = document.getElementById('ai-schedule-image-preview');
+const aiScheduleImageThumbnail = document.getElementById('ai-schedule-image-thumbnail');
+const aiScheduleImageName = document.getElementById('ai-schedule-image-name');
+const aiScheduleLoadingText = document.getElementById('ai-schedule-loading-text');
 
 // KidsNote Import DOM Elements
 const btnImportKidsNote = document.getElementById('btn-import-kidsnote');
@@ -158,6 +167,9 @@ const kidsNoteSummary = document.getElementById('kidsnote-summary');
 const kidsNoteSelectedCount = document.getElementById('kidsnote-selected-count');
 
 let aiScheduleEventsState = [];
+let aiScheduleInputMode = 'text';
+let aiScheduleImageDataUrl = '';
+let aiScheduleImageFileName = '';
 let kidsNoteEventsState = [];
 let kidsNoteSessionConnected = false;
 let kidsNoteSavedEventKeys = new Set();
@@ -2427,7 +2439,76 @@ function setAiScheduleAnalyzing(isAnalyzing) {
   btnAnalyzeAiSchedule.disabled = isAnalyzing;
   btnAnalyzeAiSchedule.classList.toggle('is-loading', isAnalyzing);
   btnAnalyzeAiSchedule.setAttribute('aria-busy', String(isAnalyzing));
-  btnAnalyzeAiSchedule.textContent = isAnalyzing ? 'AI 분석 중…' : '분석하기';
+  btnAnalyzeAiSchedule.textContent = isAnalyzing ? 'AI 분석 중…' : (aiScheduleInputMode === 'image' ? '이미지 인식' : '텍스트 분석');
+}
+
+function setAiScheduleInputMode(mode) {
+  aiScheduleInputMode = mode === 'image' ? 'image' : 'text';
+  document.querySelectorAll('[data-ai-input-mode]').forEach(button => {
+    const active = button.dataset.aiInputMode === aiScheduleInputMode;
+    button.classList.toggle('is-active', active);
+    button.setAttribute('aria-selected', String(active));
+  });
+  aiScheduleTextPanel?.classList.toggle('hidden', aiScheduleInputMode !== 'text');
+  aiScheduleImagePanel?.classList.toggle('hidden', aiScheduleInputMode !== 'image');
+  setAiScheduleAnalyzing(false);
+  if (aiScheduleInputMode === 'text') setTimeout(() => aiScheduleText?.focus(), 0);
+}
+
+function clearAiScheduleImage() {
+  aiScheduleImageDataUrl = '';
+  aiScheduleImageFileName = '';
+  if (aiScheduleImage) aiScheduleImage.value = '';
+  if (aiScheduleImageThumbnail) aiScheduleImageThumbnail.removeAttribute('src');
+  if (aiScheduleImageName) aiScheduleImageName.textContent = '';
+  aiScheduleImagePreview?.classList.add('hidden');
+}
+
+function resizeAiScheduleImage(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('이미지를 읽지 못했습니다.'));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error('지원하지 않는 이미지입니다.'));
+      image.onload = () => {
+        const maxSide = 1800;
+        const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+        const context = canvas.getContext('2d');
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', .88));
+      };
+      image.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function selectAiScheduleImage(file) {
+  if (!file) return;
+  if (!/^image\/(jpeg|png|webp|gif)$/i.test(file.type)) {
+    showToast('JPG, PNG, WEBP, GIF 이미지를 선택해 주세요.', 'danger');
+    return;
+  }
+  if (file.size > 15 * 1024 * 1024) {
+    showToast('15MB 이하 이미지를 선택해 주세요.', 'danger');
+    return;
+  }
+  try {
+    aiScheduleImageDataUrl = await resizeAiScheduleImage(file);
+    aiScheduleImageFileName = file.name;
+    aiScheduleImageThumbnail.src = aiScheduleImageDataUrl;
+    aiScheduleImageName.textContent = file.name;
+    aiScheduleImagePreview.classList.remove('hidden');
+  } catch (error) {
+    clearAiScheduleImage();
+    showToast(error.message, 'danger');
+  }
 }
 
 function setupAiScheduleEventListeners() {
@@ -2440,13 +2521,17 @@ function setupAiScheduleEventListeners() {
       closeAiSchedule();
     }
   });
-  btnAnalyzeAiSchedule?.addEventListener('click', analyzeAiScheduleText);
+  btnAnalyzeAiSchedule?.addEventListener('click', analyzeAiSchedule);
   btnSaveAiSchedules?.addEventListener('click', saveAiSchedules);
   btnAiScheduleBack?.addEventListener('click', showAiScheduleInput);
+  document.querySelectorAll('[data-ai-input-mode]').forEach(button => button.addEventListener('click', () => setAiScheduleInputMode(button.dataset.aiInputMode)));
+  btnAiScheduleImage?.addEventListener('click', () => aiScheduleImage?.click());
+  aiScheduleImage?.addEventListener('change', () => selectAiScheduleImage(aiScheduleImage.files?.[0]));
+  btnRemoveAiScheduleImage?.addEventListener('click', clearAiScheduleImage);
 
   document.querySelectorAll('.ai-example-chip').forEach(chip => {
     chip.addEventListener('click', () => {
-      aiScheduleText.value = chip.textContent.trim();
+      aiScheduleText.value = chip.dataset.text || chip.textContent.trim();
       aiScheduleText.focus();
     });
   });
@@ -2470,6 +2555,8 @@ function closeAiSchedule() {
 function resetAiScheduleModal() {
   aiScheduleEventsState = [];
   aiScheduleText.value = '';
+  clearAiScheduleImage();
+  setAiScheduleInputMode('text');
   aiScheduleList.innerHTML = '';
   if (aiScheduleCount) aiScheduleCount.textContent = '0';
   if (aiSelectedCount) aiSelectedCount.textContent = '0';
@@ -2508,13 +2595,17 @@ function showAiScheduleInput() {
   if (aiMicBtn) aiMicBtn.classList.remove('hidden');
 
   btnCancelAiSchedule.textContent = '닫기';
-  aiScheduleText.focus();
+  if (aiScheduleInputMode === 'text') aiScheduleText.focus();
 }
 
-async function analyzeAiScheduleText() {
+async function analyzeAiSchedule() {
   const text = aiScheduleText.value.trim();
-  if (!text) {
+  if (aiScheduleInputMode === 'text' && !text) {
     showToast('추가할 일정을 입력해 주세요.', 'danger');
+    return;
+  }
+  if (aiScheduleInputMode === 'image' && !aiScheduleImageDataUrl) {
+    showToast('인식할 일정 이미지를 선택해 주세요.', 'danger');
     return;
   }
 
@@ -2527,22 +2618,26 @@ async function analyzeAiScheduleText() {
   const aiMicBtn = document.querySelector('.ai-mic-btn');
   aiScheduleText.classList.add('hidden');
   if (aiScheduleDisplayTitle) {
-    aiScheduleDisplayTitle.textContent = text;
+    aiScheduleDisplayTitle.textContent = aiScheduleInputMode === 'image' ? aiScheduleImageFileName : text;
     aiScheduleDisplayTitle.classList.remove('hidden');
   }
   if (aiMicBtn) aiMicBtn.classList.add('hidden');
+  if (aiScheduleLoadingText) aiScheduleLoadingText.textContent = aiScheduleInputMode === 'image' ? 'AI가 이미지에서 일정을 인식하고 있습니다...' : 'AI가 일정을 분석하고 있습니다...';
 
   try {
-    const response = await fetch('/api/todos/parse-natural-language', {
+    const isImage = aiScheduleInputMode === 'image';
+    const response = await fetch(isImage ? '/api/todos/parse-schedule-image' : '/api/todos/parse-natural-language', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text,
-        baseDate: formatLocalIsoWithOffset()
-      })
+      body: JSON.stringify(isImage
+        ? { imageDataUrl: aiScheduleImageDataUrl, baseDate: formatLocalIsoWithOffset() }
+        : { text, baseDate: formatLocalIsoWithOffset() })
     });
 
-    if (!response.ok) throw new Error('AI 일정 확인 중 오류가 발생했습니다.');
+    if (!response.ok) {
+      const details = await response.json().catch(() => ({}));
+      throw new Error(details.error || 'AI 일정 확인 중 오류가 발생했습니다.');
+    }
     const result = await response.json();
     aiScheduleEventsState = Array.isArray(result.events) ? result.events : [];
 
